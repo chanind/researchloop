@@ -228,6 +228,7 @@ def _apply_env_overrides(config: Config) -> None:
         RESEARCHLOOP_SLACK_CHANNEL_ID
         RESEARCHLOOP_NTFY_URL
         RESEARCHLOOP_NTFY_TOPIC
+        RESEARCHLOOP_DASHBOARD_PASSWORD
         RESEARCHLOOP_DASHBOARD_PASSWORD_HASH
         RESEARCHLOOP_DASHBOARD_PORT
         RESEARCHLOOP_DASHBOARD_HOST
@@ -267,6 +268,12 @@ def _apply_env_overrides(config: Config) -> None:
         config.ntfy.url = v
 
     # Dashboard
+    if v := _env("DASHBOARD_PASSWORD"):
+        import bcrypt
+
+        config.dashboard.password_hash = bcrypt.hashpw(
+            v.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
     if v := _env("DASHBOARD_PASSWORD_HASH"):
         config.dashboard.password_hash = v
     if v := _env("DASHBOARD_PORT"):

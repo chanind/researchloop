@@ -17,6 +17,7 @@ from researchloop.dashboard.auth import (
     SESSION_COOKIE,
     SessionManager,
     check_password,
+    hash_password,
 )
 from researchloop.db import queries
 
@@ -35,33 +36,111 @@ def add_dashboard_routes(
 ) -> None:
     """Register all dashboard HTML routes on *app*."""
 
-    password_hash = orchestrator.config.dashboard.password_hash
     session_mgr = SessionManager()
+
+    # ----------------------------------------------------------
+    # Password resolution — config, env, or DB
+    # ----------------------------------------------------------
+
+    async def _get_password_hash() -> str | None:
+        """Get password hash from config or DB settings."""
+        # Config / env var takes priority
+        cfg_hash = orchestrator.config.dashboard.password_hash
+        if cfg_hash:
+            return cfg_hash
+        # Fall back to DB
+        if orchestrator.db is not None:
+            row = await orchestrator.db.fetch_one(
+                "SELECT value FROM settings WHERE key = ?",
+                ("dashboard_password_hash",),
+            )
+            if row:
+                return row["value"]
+        return None
+
+    async def _set_password_hash(pw_hash: str) -> None:
+        """Store password hash in the DB settings table."""
+        if orchestrator.db is None:
+            return
+        await orchestrator.db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("dashboard_password_hash", pw_hash),
+        )
 
     # ----------------------------------------------------------
     # Auth helpers
     # ----------------------------------------------------------
 
-    def _is_authenticated(request: Request) -> bool:
-        """Return True if the session cookie is valid."""
-        if not password_hash:
-            return True
+    async def _is_authenticated(request: Request) -> bool:
+        pw_hash = await _get_password_hash()
+        if not pw_hash:
+            return False  # no password = needs setup
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             return False
         return session_mgr.verify_token(token)
 
-    def _require_auth(request: Request) -> bool:
-        """Redirect to login if not authenticated."""
-        return _is_authenticated(request)
+    async def _needs_setup() -> bool:
+        return await _get_password_hash() is None
 
-    def _ctx(request: Request, **kwargs: object) -> dict:
-        """Build a template context dict."""
+    def _ctx(request: Request, authenticated: bool = False, **kwargs: object) -> dict:
         return {
             "request": request,
-            "authenticated": _is_authenticated(request),
+            "authenticated": authenticated,
             **kwargs,
         }
+
+    # ----------------------------------------------------------
+    # Setup (first run)
+    # ----------------------------------------------------------
+
+    @app.get("/dashboard/setup")
+    async def dashboard_setup(request: Request):  # type: ignore[no-untyped-def]
+        if not await _needs_setup():
+            return RedirectResponse("/dashboard/", status_code=303)
+        return templates.TemplateResponse("setup.html", _ctx(request, error=None))
+
+    @app.post("/dashboard/setup")
+    async def dashboard_setup_post(request: Request):  # type: ignore[no-untyped-def]
+        if not await _needs_setup():
+            return RedirectResponse("/dashboard/", status_code=303)
+
+        form = await request.form()
+        password = str(form.get("password", ""))
+        confirm = str(form.get("confirm", ""))
+
+        if len(password) < 8:
+            return templates.TemplateResponse(
+                "setup.html",
+                _ctx(
+                    request,
+                    error="Password must be at least 8 characters",
+                ),
+                status_code=400,
+            )
+
+        if password != confirm:
+            return templates.TemplateResponse(
+                "setup.html",
+                _ctx(request, error="Passwords do not match"),
+                status_code=400,
+            )
+
+        pw_hash = hash_password(password)
+        await _set_password_hash(pw_hash)
+
+        logger.info("Dashboard password set via first-run setup")
+
+        # Auto-login after setup
+        token = session_mgr.create_token()
+        response = RedirectResponse("/dashboard/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
 
     # ----------------------------------------------------------
     # Login / Logout
@@ -69,17 +148,20 @@ def add_dashboard_routes(
 
     @app.get("/dashboard/login")
     async def dashboard_login(request: Request):  # type: ignore[no-untyped-def]
-        return templates.TemplateResponse(
-            "login.html",
-            _ctx(request, error=None),
-        )
+        if await _needs_setup():
+            return RedirectResponse("/dashboard/setup", status_code=303)
+        return templates.TemplateResponse("login.html", _ctx(request, error=None))
 
     @app.post("/dashboard/login")
     async def dashboard_login_post(request: Request):  # type: ignore[no-untyped-def]
-        form = await request.form()
-        pwd = form.get("password", "")
+        if await _needs_setup():
+            return RedirectResponse("/dashboard/setup", status_code=303)
 
-        if not password_hash or check_password(str(pwd), password_hash):
+        form = await request.form()
+        pwd = str(form.get("password", ""))
+        pw_hash = await _get_password_hash()
+
+        if pw_hash and check_password(pwd, pw_hash):
             token = session_mgr.create_token()
             response = RedirectResponse("/dashboard/", status_code=303)
             response.set_cookie(
@@ -103,13 +185,25 @@ def add_dashboard_routes(
         return response
 
     # ----------------------------------------------------------
+    # Auth gate for all pages below
+    # ----------------------------------------------------------
+
+    async def _gate(request: Request):  # type: ignore[no-untyped-def]
+        """Redirect to setup or login if needed."""
+        if await _needs_setup():
+            return RedirectResponse("/dashboard/setup", status_code=303)
+        if not await _is_authenticated(request):
+            return RedirectResponse("/dashboard/login", status_code=303)
+        return None
+
+    # ----------------------------------------------------------
     # Studies
     # ----------------------------------------------------------
 
     @app.get("/dashboard/")
     async def dashboard_studies(request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         rows = await queries.list_studies(orchestrator.db)
@@ -130,13 +224,13 @@ def add_dashboard_routes(
             )
         return templates.TemplateResponse(
             "studies.html",
-            _ctx(request, studies=study_list),
+            _ctx(request, authenticated=True, studies=study_list),
         )
 
     @app.get("/dashboard/studies/{name}")
     async def dashboard_study_detail(name: str, request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         study = await queries.get_study(orchestrator.db, name)
@@ -146,7 +240,12 @@ def add_dashboard_routes(
         sprints = await queries.list_sprints(orchestrator.db, study_name=name, limit=50)
         return templates.TemplateResponse(
             "study_detail.html",
-            _ctx(request, study=study, sprints=sprints),
+            _ctx(
+                request,
+                authenticated=True,
+                study=study,
+                sprints=sprints,
+            ),
         )
 
     # ----------------------------------------------------------
@@ -155,34 +254,32 @@ def add_dashboard_routes(
 
     @app.get("/dashboard/sprints")
     async def dashboard_sprints(request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         sprints = await queries.list_sprints(orchestrator.db, limit=100)
         return templates.TemplateResponse(
             "sprints.html",
-            _ctx(request, sprints=sprints),
+            _ctx(request, authenticated=True, sprints=sprints),
         )
 
     @app.get("/dashboard/sprints/{sprint_id}")
     async def dashboard_sprint_detail(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         sprint = await queries.get_sprint(orchestrator.db, sprint_id)
         if sprint is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Sprint not found",
-            )
+            raise HTTPException(status_code=404, detail="Sprint not found")
 
         artifacts = await queries.list_artifacts(orchestrator.db, sprint_id)
         return templates.TemplateResponse(
             "sprint_detail.html",
             _ctx(
                 request,
+                authenticated=True,
                 sprint=sprint,
                 artifacts=artifacts,
             ),
@@ -194,14 +291,14 @@ def add_dashboard_routes(
 
     @app.get("/dashboard/loops")
     async def dashboard_loops(request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         loops = await queries.list_auto_loops(orchestrator.db)
         return templates.TemplateResponse(
             "loops.html",
-            _ctx(request, loops=loops),
+            _ctx(request, authenticated=True, loops=loops),
         )
 
     # ----------------------------------------------------------
@@ -210,16 +307,13 @@ def add_dashboard_routes(
 
     @app.get("/dashboard/artifacts/{artifact_id}/download")
     async def dashboard_artifact_download(artifact_id: int, request: Request):  # type: ignore[no-untyped-def]
-        if not _require_auth(request):
-            return RedirectResponse("/dashboard/login", status_code=303)
+        if redir := await _gate(request):
+            return redir
         assert orchestrator.db is not None
 
         artifact = await queries.get_artifact(orchestrator.db, artifact_id)
         if artifact is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Artifact not found",
-            )
+            raise HTTPException(status_code=404, detail="Artifact not found")
 
         file_path = Path(artifact["path"])
         if not file_path.exists():

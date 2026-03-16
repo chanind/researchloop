@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (sprint_id) REFERENCES sprints(id)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 INDEXES_SQL = """
