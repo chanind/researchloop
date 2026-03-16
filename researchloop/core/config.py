@@ -250,9 +250,7 @@ def _apply_env_overrides(config: Config) -> None:
     if _env("SLACK_SIGNING_SECRET"):
         if config.slack is None:
             config.slack = SlackConfig()
-        config.slack.signing_secret = (
-            _env("SLACK_SIGNING_SECRET") or ""
-        )
+        config.slack.signing_secret = _env("SLACK_SIGNING_SECRET") or ""
     if v := _env("SLACK_CHANNEL_ID"):
         if config.slack is None:
             config.slack = SlackConfig()

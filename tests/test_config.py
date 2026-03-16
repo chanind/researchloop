@@ -59,9 +59,7 @@ class TestEnvOverrides:
         assert config.api_key == "from-env"
 
     def test_orchestrator_url(self, toml_config_file, monkeypatch):
-        monkeypatch.setenv(
-            "RESEARCHLOOP_ORCHESTRATOR_URL", "https://x.io"
-        )
+        monkeypatch.setenv("RESEARCHLOOP_ORCHESTRATOR_URL", "https://x.io")
         config = load_config(str(toml_config_file))
         assert config.orchestrator_url == "https://x.io"
 
@@ -78,12 +76,8 @@ class TestEnvOverrides:
             '[[study]]\nname = "s"\n'
             'cluster = "c"\nsprints_dir = "."\n'
         )
-        monkeypatch.setenv(
-            "RESEARCHLOOP_SLACK_BOT_TOKEN", "xoxb-test"
-        )
-        monkeypatch.setenv(
-            "RESEARCHLOOP_SLACK_CHANNEL_ID", "C123"
-        )
+        monkeypatch.setenv("RESEARCHLOOP_SLACK_BOT_TOKEN", "xoxb-test")
+        monkeypatch.setenv("RESEARCHLOOP_SLACK_CHANNEL_ID", "C123")
         config = load_config(str(p))
         assert config.slack is not None
         assert config.slack.bot_token == "xoxb-test"
@@ -97,9 +91,7 @@ class TestEnvOverrides:
             'cluster = "c"\nsprints_dir = "."\n\n'
             '[slack]\nbot_token = "old"\n'
         )
-        monkeypatch.setenv(
-            "RESEARCHLOOP_SLACK_BOT_TOKEN", "new-token"
-        )
+        monkeypatch.setenv("RESEARCHLOOP_SLACK_BOT_TOKEN", "new-token")
         config = load_config(str(p))
         assert config.slack.bot_token == "new-token"
 
@@ -120,18 +112,12 @@ class TestEnvOverrides:
         config = load_config(str(toml_config_file))
         assert config.dashboard.port == 3000
 
-    def test_dashboard_password_hash(
-        self, toml_config_file, monkeypatch
-    ):
-        monkeypatch.setenv(
-            "RESEARCHLOOP_DASHBOARD_PASSWORD_HASH", "$2b$12$xxx"
-        )
+    def test_dashboard_password_hash(self, toml_config_file, monkeypatch):
+        monkeypatch.setenv("RESEARCHLOOP_DASHBOARD_PASSWORD_HASH", "$2b$12$xxx")
         config = load_config(str(toml_config_file))
         assert config.dashboard.password_hash == "$2b$12$xxx"
 
-    def test_env_does_not_override_when_unset(
-        self, toml_config_file
-    ):
+    def test_env_does_not_override_when_unset(self, toml_config_file):
         """Without env vars, TOML values are preserved."""
         config = load_config(str(toml_config_file))
         assert config.api_key == "test-key"  # from TOML
