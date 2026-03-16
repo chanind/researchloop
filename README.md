@@ -108,6 +108,27 @@ topic = "researchloop"                     # push notifications via ntfy.sh
 port = 8080
 ```
 
+### Environment variables
+
+Secrets and sensitive settings can be configured via environment variables instead of (or in addition to) the TOML file. Env vars use the `RESEARCHLOOP_` prefix and take precedence over TOML values.
+
+| Env var | Overrides |
+|---------|-----------|
+| `RESEARCHLOOP_API_KEY` | `api_key` |
+| `RESEARCHLOOP_ORCHESTRATOR_URL` | `orchestrator_url` |
+| `RESEARCHLOOP_DB_PATH` | `db_path` |
+| `RESEARCHLOOP_ARTIFACT_DIR` | `artifact_dir` |
+| `RESEARCHLOOP_SLACK_BOT_TOKEN` | `slack.bot_token` |
+| `RESEARCHLOOP_SLACK_SIGNING_SECRET` | `slack.signing_secret` |
+| `RESEARCHLOOP_SLACK_CHANNEL_ID` | `slack.channel_id` |
+| `RESEARCHLOOP_NTFY_TOPIC` | `ntfy.topic` |
+| `RESEARCHLOOP_NTFY_URL` | `ntfy.url` |
+| `RESEARCHLOOP_DASHBOARD_PASSWORD_HASH` | `dashboard.password_hash` |
+| `RESEARCHLOOP_DASHBOARD_PORT` | `dashboard.port` |
+| `RESEARCHLOOP_DASHBOARD_HOST` | `dashboard.host` |
+
+This means your `researchloop.toml` can contain only non-secret structural config (clusters, studies), while secrets live in env vars or your deployment platform's secret manager.
+
 ### Run a sprint
 
 ```bash

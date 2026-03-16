@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -196,4 +197,81 @@ def load_config(path: str | None = None) -> Config:
     with open(config_path, "rb") as f:
         data = tomllib.load(f)
 
-    return _parse_config(data)
+    config = _parse_config(data)
+    _apply_env_overrides(config)
+    return config
+
+
+# ------------------------------------------------------------------
+# Environment variable overrides
+# ------------------------------------------------------------------
+
+_ENV_PREFIX = "RESEARCHLOOP_"
+
+
+def _env(name: str) -> str | None:
+    """Read an env var with the RESEARCHLOOP_ prefix."""
+    return os.environ.get(f"{_ENV_PREFIX}{name}")
+
+
+def _apply_env_overrides(config: Config) -> None:
+    """Override config values from environment variables.
+
+    Env vars take precedence over TOML values.  Supported vars::
+
+        RESEARCHLOOP_API_KEY
+        RESEARCHLOOP_ORCHESTRATOR_URL
+        RESEARCHLOOP_DB_PATH
+        RESEARCHLOOP_ARTIFACT_DIR
+        RESEARCHLOOP_SLACK_BOT_TOKEN
+        RESEARCHLOOP_SLACK_SIGNING_SECRET
+        RESEARCHLOOP_SLACK_CHANNEL_ID
+        RESEARCHLOOP_NTFY_URL
+        RESEARCHLOOP_NTFY_TOPIC
+        RESEARCHLOOP_DASHBOARD_PASSWORD_HASH
+        RESEARCHLOOP_DASHBOARD_PORT
+        RESEARCHLOOP_DASHBOARD_HOST
+    """
+    # Top-level secrets / settings
+    if v := _env("API_KEY"):
+        config.api_key = v
+    if v := _env("ORCHESTRATOR_URL"):
+        config.orchestrator_url = v
+    if v := _env("DB_PATH"):
+        config.db_path = v
+    if v := _env("ARTIFACT_DIR"):
+        config.artifact_dir = v
+
+    # Slack
+    if _env("SLACK_BOT_TOKEN"):
+        if config.slack is None:
+            config.slack = SlackConfig()
+        config.slack.bot_token = _env("SLACK_BOT_TOKEN") or ""
+    if _env("SLACK_SIGNING_SECRET"):
+        if config.slack is None:
+            config.slack = SlackConfig()
+        config.slack.signing_secret = (
+            _env("SLACK_SIGNING_SECRET") or ""
+        )
+    if v := _env("SLACK_CHANNEL_ID"):
+        if config.slack is None:
+            config.slack = SlackConfig()
+        config.slack.channel_id = v
+
+    # ntfy
+    if _env("NTFY_TOPIC"):
+        if config.ntfy is None:
+            config.ntfy = NtfyConfig()
+        config.ntfy.topic = _env("NTFY_TOPIC") or ""
+    if v := _env("NTFY_URL"):
+        if config.ntfy is None:
+            config.ntfy = NtfyConfig()
+        config.ntfy.url = v
+
+    # Dashboard
+    if v := _env("DASHBOARD_PASSWORD_HASH"):
+        config.dashboard.password_hash = v
+    if v := _env("DASHBOARD_PORT"):
+        config.dashboard.port = int(v)
+    if v := _env("DASHBOARD_HOST"):
+        config.dashboard.host = v
