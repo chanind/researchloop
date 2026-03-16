@@ -1,0 +1,47 @@
+#!/bin/bash
+#SBATCH --job-name={{ job_name }}
+#SBATCH --output={{ working_dir }}/{{ sprint_dirname }}/.researchloop/slurm-%j.out
+#SBATCH --error={{ working_dir }}/{{ sprint_dirname }}/.researchloop/slurm-%j.err
+#SBATCH --time={{ time_limit }}
+{% if partition is defined and partition %}
+#SBATCH --partition={{ partition }}
+{% endif %}
+{% if gpus is defined and gpus %}
+#SBATCH --gpus={{ gpus }}
+{% endif %}
+{% if mem is defined and mem %}
+#SBATCH --mem={{ mem }}
+{% endif %}
+
+set -euo pipefail
+
+# --- Environment ---
+{% for key, value in environment.items() %}
+export {{ key }}="{{ value }}"
+{% endfor %}
+
+export RESEARCHLOOP_SPRINT_ID="{{ sprint_id }}"
+export RESEARCHLOOP_STUDY_NAME="{{ study_name }}"
+
+SPRINT_DIR="{{ working_dir }}/{{ sprint_dirname }}"
+cd "$SPRINT_DIR"
+mkdir -p .researchloop results
+
+echo "=== ResearchLoop Sprint {{ sprint_id }} ==="
+echo "Study: {{ study_name }}"
+echo "Idea: {{ idea }}"
+echo "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# --- Run the research sprint ---
+researchloop-runner run \
+    --sprint-id "{{ sprint_id }}" \
+    --sprint-dir "$SPRINT_DIR" \
+    --claude-md "{{ claude_md_path }}" \
+    --idea "{{ idea }}" \
+    --orchestrator-url "{{ orchestrator_url }}" \
+    --api-key "{{ api_key }}" \
+    --red-team-rounds {{ red_team_max_rounds }}
+
+EXIT_CODE=$?
+echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (exit code: $EXIT_CODE)"
+exit $EXIT_CODE

@@ -1,0 +1,16 @@
+You are generating the next research idea for an auto-loop sprint.
+
+## Study Context
+{{ study_context }}
+
+## Previous Sprint Summaries
+{% for sprint in previous_sprints %}
+### {{ sprint.id }}
+{{ sprint.summary }}
+{% endfor %}
+
+## Instructions
+- Based on the study context and previous results, propose the next research idea
+- Write a single clear, actionable research idea (1-2 sentences)
+- Focus on: unexplored angles, following up promising leads, addressing gaps
+- Output ONLY the idea text, nothing else

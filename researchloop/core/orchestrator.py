@@ -1,0 +1,389 @@
+"""Main orchestrator -- ties every subsystem together and exposes a FastAPI app."""
+
+from __future__ import annotations
+
+import json
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Header, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from researchloop.clusters.monitor import JobMonitor
+from researchloop.clusters.ssh import SSHManager
+from researchloop.comms.ntfy import NtfyNotifier
+from researchloop.comms.router import NotificationRouter
+from researchloop.core.config import Config
+from researchloop.db.database import Database
+from researchloop.schedulers.base import BaseScheduler
+from researchloop.sprints.auto_loop import AutoLoopController
+from researchloop.sprints.manager import SprintManager
+from researchloop.studies.manager import StudyManager
+
+logger = logging.getLogger(__name__)
+
+
+class Orchestrator:
+    """Central coordinator that initialises and owns every subsystem.
+
+    Call :meth:`start` to bring everything up and :meth:`stop` for a
+    clean shutdown.
+    """
+
+    def __init__(self, config: Config) -> None:
+        self.config = config
+
+        # Subsystem references (populated by start()).
+        self.db: Database | None = None
+        self.ssh_manager: SSHManager | None = None
+        self.schedulers: dict[str, BaseScheduler] = {}
+        self.study_manager: StudyManager | None = None
+        self.sprint_manager: SprintManager | None = None
+        self.auto_loop: AutoLoopController | None = None
+        self.notification_router: NotificationRouter | None = None
+        self.job_monitor: JobMonitor | None = None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Initialise the database, managers, and background tasks."""
+        logger.info("Orchestrator starting...")
+
+        # 1. Database
+        self.db = Database(self.config.db_path)
+        await self.db.connect()
+        logger.info("Database connected: %s", self.config.db_path)
+
+        # 2. SSH manager
+        self.ssh_manager = SSHManager()
+
+        # 3. Schedulers -- import concrete implementations lazily so that
+        #    the base package has no hard dependency on them.
+        self.schedulers = _build_schedulers(self.config)
+
+        # 4. Study manager
+        self.study_manager = StudyManager(self.db, self.config)
+        await self.study_manager.sync_from_config()
+
+        # 5. Notification router
+        self.notification_router = NotificationRouter()
+        if self.config.ntfy and self.config.ntfy.topic:
+            ntfy = NtfyNotifier(
+                url=self.config.ntfy.url,
+                topic=self.config.ntfy.topic,
+            )
+            self.notification_router.add_notifier(ntfy)
+            logger.info("ntfy notifier configured for topic %r", self.config.ntfy.topic)
+
+        # 6. Sprint manager
+        self.sprint_manager = SprintManager(
+            db=self.db,
+            config=self.config,
+            ssh_manager=self.ssh_manager,
+            schedulers=self.schedulers,
+            study_manager=self.study_manager,
+            notification_router=self.notification_router,
+        )
+
+        # 7. Auto-loop controller
+        self.auto_loop = AutoLoopController(
+            db=self.db,
+            sprint_manager=self.sprint_manager,
+            config=self.config,
+        )
+
+        # 8. Job monitor
+        self.job_monitor = JobMonitor(
+            ssh_manager=self.ssh_manager,
+            db=self.db,
+            schedulers=self.schedulers,
+            config=self.config,
+        )
+        await self.job_monitor.start_polling()
+
+        logger.info("Orchestrator started.")
+
+    async def stop(self) -> None:
+        """Shut down all subsystems cleanly."""
+        logger.info("Orchestrator shutting down...")
+
+        if self.job_monitor is not None:
+            await self.job_monitor.stop_polling()
+
+        if self.ssh_manager is not None:
+            await self.ssh_manager.close_all()
+
+        if self.db is not None:
+            await self.db.close()
+
+        logger.info("Orchestrator stopped.")
+
+
+# ----------------------------------------------------------------------
+# Scheduler factory
+# ----------------------------------------------------------------------
+
+
+def _build_schedulers(config: Config) -> dict[str, BaseScheduler]:
+    """Build a scheduler instance for every cluster in *config*.
+
+    The dict is keyed by cluster name **and** by scheduler type so that
+    lookups by either key succeed.
+    """
+    schedulers: dict[str, BaseScheduler] = {}
+
+    for cluster in config.clusters:
+        stype = cluster.scheduler_type
+        if stype in schedulers:
+            # Reuse an existing scheduler of the same type.
+            schedulers[cluster.name] = schedulers[stype]
+            continue
+
+        scheduler: BaseScheduler | None = None
+        try:
+            if stype == "slurm":
+                from researchloop.schedulers.slurm import (
+                    SlurmScheduler,  # type: ignore[import-not-found]
+                )
+
+                scheduler = SlurmScheduler()
+            elif stype == "sge":
+                from researchloop.schedulers.sge import (
+                    SGEScheduler,  # type: ignore[import-not-found]
+                )
+
+                scheduler = SGEScheduler()
+            elif stype == "local":
+                from researchloop.schedulers.local import (
+                    LocalScheduler,  # type: ignore[import-not-found]
+                )
+
+                scheduler = LocalScheduler()
+            else:
+                logger.warning(
+                    "Unknown scheduler type %r for cluster %r", stype, cluster.name
+                )
+        except ImportError:
+            logger.warning(
+                "Scheduler %r not available (import failed) for cluster %r",
+                stype,
+                cluster.name,
+            )
+
+        if scheduler is not None:
+            schedulers[cluster.name] = scheduler
+            schedulers[stype] = scheduler
+
+    return schedulers
+
+
+# ======================================================================
+# FastAPI application factory
+# ======================================================================
+
+
+def create_app(orchestrator: Orchestrator) -> FastAPI:
+    """Build and return the FastAPI application.
+
+    Routes:
+      - ``POST /api/webhook/sprint-complete``
+      - ``POST /api/webhook/heartbeat``
+      - ``POST /api/artifacts/{sprint_id}``
+      - ``GET  /api/sprints``
+      - ``GET  /api/sprints/{sprint_id}``
+      - ``GET  /api/studies``
+    """
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
+        await orchestrator.start()
+        yield
+        await orchestrator.stop()
+
+    app = FastAPI(
+        title="ResearchLoop API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+
+    # -- CORS middleware ------------------------------------------------
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # -- Auth helper ----------------------------------------------------
+
+    def _check_api_key(x_api_key: str | None) -> None:
+        """Raise 401 if the request API key does not match."""
+        expected = orchestrator.config.api_key
+        if expected and x_api_key != expected:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # -- Webhook routes -------------------------------------------------
+
+    @app.post("/api/webhook/sprint-complete")
+    async def webhook_sprint_complete(
+        request: Request,
+        x_api_key: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Handle sprint completion webhook from the runner."""
+        _check_api_key(x_api_key)
+
+        body: dict[str, Any] = await request.json()
+        sprint_id: str = body.get("sprint_id", "")
+        status: str = body.get("status", "completed")
+        summary: str | None = body.get("summary")
+        error: str | None = body.get("error")
+
+        if not sprint_id:
+            raise HTTPException(status_code=400, detail="sprint_id is required")
+
+        assert orchestrator.sprint_manager is not None
+        await orchestrator.sprint_manager.handle_completion(
+            sprint_id=sprint_id,
+            status=status,
+            summary=summary,
+            error=error,
+        )
+
+        # Trigger auto-loop advancement if applicable.
+        if orchestrator.auto_loop is not None:
+            await orchestrator.auto_loop.on_sprint_complete(sprint_id)
+
+        logger.info(
+            "Webhook: sprint %s completion processed (status=%s)",
+            sprint_id,
+            status,
+        )
+        return JSONResponse({"ok": True, "sprint_id": sprint_id})
+
+    @app.post("/api/webhook/heartbeat")
+    async def webhook_heartbeat(
+        request: Request,
+        x_api_key: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Handle heartbeat from the runner."""
+        _check_api_key(x_api_key)
+
+        body: dict[str, Any] = await request.json()
+        sprint_id: str = body.get("sprint_id", "")
+        phase: str | None = body.get("phase")
+
+        if not sprint_id:
+            raise HTTPException(status_code=400, detail="sprint_id is required")
+
+        assert orchestrator.db is not None
+
+        from researchloop.db import queries
+
+        update_fields: dict[str, Any] = {
+            "metadata_json": json.dumps(
+                {
+                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                    "phase": phase,
+                }
+            ),
+        }
+        if phase:
+            update_fields["status"] = phase
+
+        await queries.update_sprint(orchestrator.db, sprint_id, **update_fields)
+
+        logger.debug("Heartbeat received for sprint %s (phase=%s)", sprint_id, phase)
+        return JSONResponse({"ok": True})
+
+    # -- Artifact upload ------------------------------------------------
+
+    @app.post("/api/artifacts/{sprint_id}")
+    async def upload_artifact(
+        sprint_id: str,
+        file: UploadFile,
+        x_api_key: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """Receive and store an artifact file for a sprint."""
+        _check_api_key(x_api_key)
+
+        assert orchestrator.db is not None
+
+        from researchloop.db import queries
+
+        sprint = await queries.get_sprint(orchestrator.db, sprint_id)
+        if sprint is None:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        # Determine storage path.
+        artifact_dir = Path(orchestrator.config.artifact_dir) / sprint_id
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = file.filename or "upload"
+        dest = artifact_dir / filename
+
+        # Stream the upload to disk.
+        size = 0
+        with open(dest, "wb") as f:
+            while chunk := await file.read(1024 * 256):  # 256 KB chunks
+                f.write(chunk)
+                size += len(chunk)
+
+        # Record in database.
+        await queries.create_artifact(
+            orchestrator.db,
+            sprint_id=sprint_id,
+            filename=filename,
+            path=str(dest),
+            size=size,
+            content_type=file.content_type,
+        )
+
+        logger.info(
+            "Artifact %r uploaded for sprint %s (%d bytes)",
+            filename,
+            sprint_id,
+            size,
+        )
+        return JSONResponse(
+            {"ok": True, "filename": filename, "size": size},
+            status_code=201,
+        )
+
+    # -- Read-only JSON endpoints ---------------------------------------
+
+    @app.get("/api/sprints")
+    async def list_sprints(
+        study_name: str | None = None,
+        limit: int = 50,
+    ) -> JSONResponse:
+        """List sprints, optionally filtered by study name."""
+        assert orchestrator.sprint_manager is not None
+        sprints = await orchestrator.sprint_manager.list_sprints(
+            study_name=study_name, limit=limit
+        )
+        return JSONResponse({"sprints": sprints})
+
+    @app.get("/api/sprints/{sprint_id}")
+    async def get_sprint(sprint_id: str) -> JSONResponse:
+        """Get a single sprint by ID."""
+        assert orchestrator.sprint_manager is not None
+        sprint = await orchestrator.sprint_manager.get_sprint(sprint_id)
+        if sprint is None:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+        return JSONResponse({"sprint": sprint})
+
+    @app.get("/api/studies")
+    async def list_studies() -> JSONResponse:
+        """List all studies."""
+        assert orchestrator.study_manager is not None
+        studies = await orchestrator.study_manager.list_all()
+        return JSONResponse({"studies": studies})
+
+    return app

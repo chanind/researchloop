@@ -1,0 +1,72 @@
+# researchloop configuration
+# Copy this file to researchloop.toml and edit to suit your setup.
+
+# Global settings
+db_path = "researchloop.db"
+artifact_dir = "artifacts"
+# api_key = "shared-secret-for-runner-auth"
+# orchestrator_url = "https://your-orchestrator.example.com"
+
+# ---------------------------------------------------------------------------
+# Clusters
+# ---------------------------------------------------------------------------
+
+[[cluster]]
+name = "local"
+host = "localhost"
+port = 22
+user = "researcher"
+key_path = "~/.ssh/id_ed25519"
+scheduler_type = "local"          # "slurm", "sge", or "local"
+working_dir = "/tmp/researchloop"
+max_concurrent_jobs = 4
+
+# [cluster.environment]
+# CUDA_VISIBLE_DEVICES = "0,1"
+# ANTHROPIC_API_KEY = "sk-..."
+
+# [[cluster]]
+# name = "hpc"
+# host = "login.cluster.example.com"
+# port = 22
+# user = "researcher"
+# key_path = "~/.ssh/id_ed25519"
+# scheduler_type = "slurm"
+# working_dir = "/scratch/researcher/researchloop"
+# max_concurrent_jobs = 8
+
+# ---------------------------------------------------------------------------
+# Studies
+# ---------------------------------------------------------------------------
+
+[[study]]
+name = "my-first-study"
+cluster = "local"
+description = "Exploring feature absorption in language models"
+claude_md_path = "./studies/my-first-study/CLAUDE.md"
+sprints_dir = "./studies/my-first-study/sprints"
+max_sprint_duration_hours = 8
+red_team_max_rounds = 3
+
+# ---------------------------------------------------------------------------
+# Notifications (optional)
+# ---------------------------------------------------------------------------
+
+# [slack]
+# bot_token = "xoxb-..."
+# signing_secret = "..."
+# channel_id = "C01234567"
+
+# [ntfy]
+# url = "https://ntfy.sh"
+# topic = "researchloop-notifications"
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+[dashboard]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+# password_hash = "$2b$12$..."   # bcrypt hash for dashboard login

@@ -1,0 +1,48 @@
+[project]
+name = "researchloop"
+version = "0.1.0"
+description = "Automated research loop orchestrator"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0,<9",
+    "fastapi>=0.100,<1",
+    "uvicorn[standard]>=0.20,<1",
+    "jinja2>=3.1,<4",
+    "aiosqlite>=0.19,<1",
+    "asyncssh>=2.14,<3",
+    "httpx>=0.24,<1",
+    "bcrypt>=4.0,<5",
+    "itsdangerous>=2.1,<3",
+    "tomli>=2.0,<3; python_version < '3.11'",
+    "python-multipart>=0.0.6,<1",
+]
+
+[project.scripts]
+researchloop = "researchloop.cli:cli"
+researchloop-runner = "researchloop.runner.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0,<9",
+    "pytest-asyncio>=0.21,<2",
+    "ruff>=0.1,<1",
+    "pyright>=1.1,<2",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
