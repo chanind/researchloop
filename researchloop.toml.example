@@ -23,7 +23,7 @@ max_concurrent_jobs = 4
 
 # [cluster.environment]
 # CUDA_VISIBLE_DEVICES = "0,1"
-# ANTHROPIC_API_KEY = "sk-..."
+# ANTHROPIC_API_KEY = "sk-..."  # only if not using `researchloop login`
 
 # [[cluster]]
 # name = "hpc"

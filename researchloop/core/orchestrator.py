@@ -451,6 +451,30 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         text: str = event.get("text", "")
         thread_ts: str = event.get("thread_ts") or event.get("ts", "")
         channel: str = event.get("channel", "")
+        text_lower = text.lower().strip()
+
+        # Handle "auth status" / "login" commands
+        if any(kw in text_lower for kw in ("auth status", "auth check", "login")):
+            if slack_cfg and slack_cfg.bot_token:
+                from researchloop.core.auth import (
+                    check_claude_auth_async,
+                )
+
+                ok, detail = await check_claude_auth_async()
+                notifier = SlackNotifier(
+                    bot_token=slack_cfg.bot_token,
+                    channel_id=channel,
+                )
+                if ok:
+                    msg = ":white_check_mark: Claude is authenticated on this server."
+                else:
+                    msg = (
+                        f":x: {detail}\n"
+                        "Run `researchloop login` on the "
+                        "orchestrator server to authenticate."
+                    )
+                await notifier._post_message(msg, thread_ts=thread_ts)
+            return JSONResponse({"ok": True})
 
         # Handle "sprint run <study> <idea>" commands
         if "sprint run" in text.lower():

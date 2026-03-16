@@ -64,6 +64,20 @@ cd researchloop
 uv sync
 ```
 
+### Authenticate
+
+```bash
+# Log in to Claude (Max subscription or API key)
+researchloop login
+
+# Check auth status
+researchloop auth-status
+```
+
+Run this on both the orchestrator server and the HPC cluster. If you use a Max subscription, `claude login` handles the browser-based OAuth flow. If you use an API key, you can skip this and set `ANTHROPIC_API_KEY` in `[cluster.environment]` instead.
+
+You can also check auth status from Slack by sending "auth status" to the bot.
+
 ### Initialize a project
 
 ```bash
@@ -89,8 +103,9 @@ key_path = "~/.ssh/id_ed25519"
 scheduler_type = "slurm"                   # "slurm", "sge", or "local"
 working_dir = "/scratch/researcher/researchloop"
 
-[cluster.environment]
-ANTHROPIC_API_KEY = "sk-ant-..."           # passed to SLURM jobs
+# Optional: set env vars for SLURM jobs (only needed if not using `claude login`)
+# [cluster.environment]
+# ANTHROPIC_API_KEY = "sk-ant-..."
 
 [[study]]
 name = "hierarchy-recovery"
