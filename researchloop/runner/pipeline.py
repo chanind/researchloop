@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 _STEP_LABELS: list[str] = [
     "research",
     "red_team",
-    "validate",
     "report",
     "summarize",
 ]
@@ -132,22 +131,8 @@ class Pipeline:
             )
             logger.info("Fix round %d complete (%d chars)", round_num, len(fix_output))
 
-        # Step 3 - Validation
-        await self._update_status("validate", step=3)
-        val_prompt = render_template(
-            "validation.md.j2",
-            idea=self.idea,
-        )
-        val_output, self._session_id = await run_claude(
-            prompt=val_prompt,
-            working_dir=self.sprint_dir,
-            claude_md=self.claude_md,
-            session_id=self._session_id,
-        )
-        logger.info("Validation step complete (%d chars)", len(val_output))
-
-        # Step 4 - Report
-        await self._update_status("report", step=4)
+        # Step 3 - Report
+        await self._update_status("report", step=3)
         report_prompt = render_template(
             "report.md.j2",
             idea=self.idea,
@@ -160,8 +145,8 @@ class Pipeline:
         )
         logger.info("Report step complete (%d chars)", len(report_output))
 
-        # Step 5 - Summarize
-        await self._update_status("summarize", step=5)
+        # Step 4 - Summarize
+        await self._update_status("summarize", step=4)
         summary_prompt = render_template("summarizer.md.j2")
         summary_output, self._session_id = await run_claude(
             prompt=summary_prompt,
