@@ -393,51 +393,6 @@ def status() -> None:
 
 
 # ---------------------------------------------------------------------------
-# login / auth-status
-# ---------------------------------------------------------------------------
-
-
-@cli.command()
-def login() -> None:
-    """Authenticate Claude CLI (runs ``claude auth login``)."""
-    import shutil
-    import subprocess
-
-    claude = shutil.which("claude")
-    if claude is None:
-        raise click.ClickException(
-            "Claude CLI not found. Install it first: "
-            "https://docs.anthropic.com/en/docs/claude-code"
-        )
-
-    click.echo(click.style("Running claude auth login...", fg="cyan", bold=True))
-    click.echo()
-    try:
-        subprocess.run([claude, "auth", "login"], check=True)
-    except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"claude auth login failed (exit {exc.returncode})")
-    except KeyboardInterrupt:
-        click.echo("\nAborted.")
-
-
-@cli.command("auth-status")
-def auth_status() -> None:
-    """Check whether Claude CLI is authenticated."""
-    from researchloop.core.auth import check_claude_auth
-
-    ok, detail = check_claude_auth()
-    if ok:
-        click.echo(click.style("Authenticated", fg="green", bold=True) + f"  {detail}")
-    else:
-        click.echo(
-            click.style("Not authenticated", fg="red", bold=True) + f"  {detail}"
-        )
-        click.echo(
-            "Run " + click.style("researchloop login", bold=True) + " to authenticate."
-        )
-
-
-# ---------------------------------------------------------------------------
 # serve
 # ---------------------------------------------------------------------------
 
