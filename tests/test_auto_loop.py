@@ -334,3 +334,47 @@ class TestGenerateNextIdea:
 
         assert "auto-loop loop-ggg" in idea
         assert "sprint 2/3" in idea
+
+
+# ------------------------------------------------------------------
+# allow_loop guard
+# ------------------------------------------------------------------
+
+
+class TestAllowLoopGuard:
+    """Studies with allow_loop=false reject auto-loops."""
+
+    async def test_start_blocked(self, db_with_study):
+        import pytest
+
+        from researchloop.core.config import (
+            ClusterConfig,
+            Config,
+            StudyConfig,
+        )
+
+        config = Config(
+            studies=[
+                StudyConfig(
+                    name="test-study",
+                    cluster="local",
+                    sprints_dir="./sp",
+                    allow_loop=False,
+                ),
+            ],
+            clusters=[
+                ClusterConfig(
+                    name="local",
+                    host="localhost",
+                ),
+            ],
+        )
+        ctrl = _make_controller(db_with_study, config)
+
+        with pytest.raises(ValueError, match="allow_loop"):
+            await ctrl.start("test-study", 5)
+
+    async def test_start_allowed_by_default(self, db_with_study, sample_config):
+        ctrl = _make_controller(db_with_study, sample_config)
+        loop_id = await ctrl.start("test-study", 2)
+        assert loop_id.startswith("loop-")

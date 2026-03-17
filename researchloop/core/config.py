@@ -53,6 +53,7 @@ class StudyConfig:
     max_sprint_duration_hours: int = 8
     red_team_max_rounds: int = 3
     description: str = ""
+    allow_loop: bool = True
 
 
 @dataclass
@@ -128,6 +129,7 @@ def _parse_study(data: dict) -> StudyConfig:
         max_sprint_duration_hours=data.get("max_sprint_duration_hours", 8),
         red_team_max_rounds=data.get("red_team_max_rounds", 3),
         description=data.get("description", ""),
+        allow_loop=data.get("allow_loop", True),
     )
 
 

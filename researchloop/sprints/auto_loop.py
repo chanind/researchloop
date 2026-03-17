@@ -61,7 +61,14 @@ class AutoLoopController:
 
         Creates the auto-loop record in the database, kicks off the
         first sprint with a placeholder idea, and returns the loop ID.
+
+        Raises ``ValueError`` if the study has ``allow_loop = false``.
         """
+        # Check if the study allows auto-loops.
+        for s in self.config.studies:
+            if s.name == study_name and not s.allow_loop:
+                raise ValueError(f"Study {study_name!r} has allow_loop = false")
+
         loop_id = _generate_loop_id()
 
         await queries.create_auto_loop(
