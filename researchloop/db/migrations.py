@@ -91,8 +91,27 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_sprint_id ON artifacts(sprint_id);
 """
 
 
+async def _add_column_if_missing(
+    db: Database,
+    table: str,
+    column: str,
+    col_type: str = "TEXT",
+) -> None:
+    """Add a column to a table if it doesn't exist."""
+    assert db._conn is not None
+    cursor = await db._conn.execute(f"PRAGMA table_info({table})")
+    rows = await cursor.fetchall()
+    existing = {row[1] for row in rows}
+    if column not in existing:
+        await db._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+
+
 async def run_migrations(db: Database) -> None:
     """Create all tables and indexes if they do not already exist."""
     assert db._conn is not None, "Database must be connected before running migrations"
     await db._conn.executescript(SCHEMA_SQL + INDEXES_SQL)
+
+    # Incremental column migrations for existing databases.
+    await _add_column_if_missing(db, "sprints", "webhook_token", "TEXT")
+
     await db._conn.commit()
