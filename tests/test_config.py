@@ -121,3 +121,80 @@ class TestEnvOverrides:
         """Without env vars, TOML values are preserved."""
         config = load_config(str(toml_config_file))
         assert config.shared_secret == "test-key"  # from TOML
+
+
+class TestContextConfig:
+    """Inline context and context_paths parsing."""
+
+    def test_cluster_inline_context(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n'
+            'context = "GPU cluster with A100s"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].context == "GPU cluster with A100s"
+
+    def test_cluster_context_paths(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n'
+            'context_paths = ["a.md", "b.md"]\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].context_paths == ["a.md", "b.md"]
+
+    def test_cluster_context_paths_single_string(self, tmp_path):
+        """A single string is coerced to a list."""
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n'
+            'context_paths = "single.md"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].context_paths == ["single.md"]
+
+    def test_study_inline_context(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+            'context = "Studying transformers"\n'
+        )
+        config = load_config(str(p))
+        assert config.studies[0].context == "Studying transformers"
+
+    def test_defaults_empty(self, tmp_path):
+        """Context fields default to empty."""
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert config.clusters[0].context == ""
+        assert config.clusters[0].context_paths == []
+        assert config.studies[0].context == ""
+
+    def test_multiline_context(self, tmp_path):
+        p = tmp_path / "researchloop.toml"
+        p.write_text(
+            '[[cluster]]\nname = "c"\nhost = "h"\n'
+            'context = """\n'
+            "Line one\n"
+            "Line two\n"
+            '"""\n\n'
+            '[[study]]\nname = "s"\n'
+            'cluster = "c"\nsprints_dir = "."\n'
+        )
+        config = load_config(str(p))
+        assert "Line one" in config.clusters[0].context
+        assert "Line two" in config.clusters[0].context

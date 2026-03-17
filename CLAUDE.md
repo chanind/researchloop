@@ -7,10 +7,12 @@ ResearchLoop is an automated research sprint platform for HPC clusters. It orche
 ## Architecture
 
 Two processes:
+
 1. **Orchestrator** (`researchloop serve`) — FastAPI server that manages studies/sprints in SQLite, submits jobs via SSH, receives webhooks from runners, stores artifacts. Also serves the web dashboard and handles Slack events.
 2. **Sprint Runner** (`researchloop-runner run`) — runs inside each SLURM/SGE job on HPC. Chains `claude -p` calls through a pipeline (research → red-team → fix → validate → report → summarize), then uploads artifacts and sends a completion webhook.
 
 Key design decisions:
+
 - All AI work runs on HPC, never on the orchestrator
 - `claude -p --output-format json` for all agent invocations (no Agent SDK dependency)
 - SSH to HPC login nodes for sbatch/squeue/scancel/qsub/qdel
@@ -89,17 +91,10 @@ SQLite with 6 tables: `studies`, `sprints`, `auto_loops`, `artifacts`, `slack_se
 
 ## Testing
 
-175 pytest tests across 14 files. Tests cover: models, config parsing, database operations, all query functions, SLURM scheduler (mock SSH), SGE scheduler (mock SSH), local scheduler (real subprocesses), study/sprint managers, auto-loop controller (with mock claude), notification router, Slack notifier + signature verification + conversation manager, FastAPI API endpoints (TestClient), dashboard routes + auth, CLI commands (CliRunner), runner output parsing, and template rendering.
+Tests cover: models, config parsing, database operations, all query functions, SLURM scheduler (mock SSH), SGE scheduler (mock SSH), local scheduler (real subprocesses), study/sprint managers, auto-loop controller (with mock claude), notification router, Slack notifier + signature verification + conversation manager, FastAPI API endpoints (TestClient), dashboard routes + auth, CLI commands (CliRunner), runner output parsing, and template rendering.
+
+Always add tests for any new functionality!
 
 ## CI
 
 GitHub Actions: lint (ruff check + format) and test (pytest on Python 3.10, 3.12, 3.13).
-
-## Current status
-
-All phases are implemented:
-- Phase 1: Core platform, sprint runner, SLURM scheduler, CLI, tests, CI
-- Phase 2: Auto-loop with LLM idea generation (claude -p with heuristic fallback)
-- Phase 3: Slack integration (Events API, conversational threads via --resume)
-- Phase 4: Web dashboard (Jinja2 templates, bcrypt password auth, session cookies)
-- Phase 5: SGE scheduler, dynamic job template selection, polish

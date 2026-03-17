@@ -1,7 +1,13 @@
 """Tests for researchloop.sprints.manager."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
+from researchloop.core.config import (
+    ClusterConfig,
+    Config,
+    StudyConfig,
+)
 from researchloop.core.models import SprintStatus
 from researchloop.db import queries
 from researchloop.sprints.manager import SprintManager
@@ -133,3 +139,278 @@ class TestSprintManagerCompletion:
 
         await mgr.handle_completion(sprint.id, status="completed", summary="Done!")
         mock_notifier.notify_sprint_completed.assert_called_once()
+
+
+def _make_config(
+    tmp_path: Path,
+    cluster_context: str = "",
+    cluster_context_paths: list[str] | None = None,
+    study_context: str = "",
+    study_claude_md_path: str = "",
+) -> Config:
+    """Build a Config with context fields set."""
+    return Config(
+        studies=[
+            StudyConfig(
+                name="test-study",
+                cluster="local",
+                sprints_dir=str(tmp_path / "sprints"),
+                context=study_context,
+                claude_md_path=study_claude_md_path,
+            ),
+        ],
+        clusters=[
+            ClusterConfig(
+                name="local",
+                host="localhost",
+                scheduler_type="slurm",
+                working_dir=str(tmp_path / "work"),
+                context=cluster_context,
+                context_paths=cluster_context_paths or [],
+            ),
+        ],
+        db_path=":memory:",
+        artifact_dir=str(tmp_path / "artifacts"),
+        shared_secret="test",
+        orchestrator_url="http://localhost:8080",
+    )
+
+
+def _extract_claude_md(ssh_mock: AsyncMock) -> str | None:
+    """Pull the CLAUDE.md content from mocked ssh.run() calls."""
+    for call in ssh_mock.run.call_args_list:
+        cmd = call.args[0] if call.args else ""
+        if "CLAUDE.md" in cmd and "cat >" in cmd:
+            # Content is between the heredoc markers.
+            lines = cmd.split("\n")
+            content_lines = []
+            in_body = False
+            for line in lines:
+                if line.startswith("cat >"):
+                    in_body = True
+                    continue
+                if line.strip() == "RESEARCHLOOP_EOF":
+                    break
+                if in_body:
+                    content_lines.append(line)
+            return "\n".join(content_lines)
+    return None
+
+
+class TestContextMerging:
+    """Test that cluster + study context is merged correctly."""
+
+    async def test_cluster_inline_only(self, db_with_study, tmp_path):
+        config = _make_config(tmp_path, cluster_context="Cluster info here")
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "Cluster info here" in content
+
+    async def test_study_inline_only(self, db_with_study, tmp_path):
+        config = _make_config(tmp_path, study_context="Study about SAEs")
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "Study about SAEs" in content
+
+    async def test_cluster_and_study_merged(self, db_with_study, tmp_path):
+        config = _make_config(
+            tmp_path,
+            cluster_context="Cluster: 4x A100",
+            study_context="Study: transformers",
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "Cluster: 4x A100" in content
+        assert "Study: transformers" in content
+        # Cluster context comes first.
+        assert content.index("Cluster:") < content.index("Study:")
+
+    async def test_context_file_loaded(self, db_with_study, tmp_path):
+        ctx_file = tmp_path / "cluster_info.md"
+        ctx_file.write_text("From cluster file", encoding="utf-8")
+
+        config = _make_config(
+            tmp_path,
+            cluster_context_paths=[str(ctx_file)],
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "From cluster file" in content
+
+    async def test_study_claude_md_file(self, db_with_study, tmp_path):
+        md_file = tmp_path / "study_claude.md"
+        md_file.write_text("Study file content", encoding="utf-8")
+
+        config = _make_config(
+            tmp_path,
+            study_claude_md_path=str(md_file),
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "Study file content" in content
+
+    async def test_all_four_sources_merged_in_order(self, db_with_study, tmp_path):
+        """cluster inline → cluster file → study inline → study file."""
+        cluster_file = tmp_path / "cluster.md"
+        cluster_file.write_text("2-cluster-file", encoding="utf-8")
+        study_file = tmp_path / "study.md"
+        study_file.write_text("4-study-file", encoding="utf-8")
+
+        config = _make_config(
+            tmp_path,
+            cluster_context="1-cluster-inline",
+            cluster_context_paths=[str(cluster_file)],
+            study_context="3-study-inline",
+            study_claude_md_path=str(study_file),
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert content.index("1-cluster-inline") < content.index("2-cluster-file")
+        assert content.index("2-cluster-file") < content.index("3-study-inline")
+        assert content.index("3-study-inline") < content.index("4-study-file")
+
+    async def test_no_context_no_upload(self, db_with_study, tmp_path):
+        """No context → no CLAUDE.md uploaded."""
+        config = _make_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is None
+
+    async def test_missing_file_skipped(self, db_with_study, tmp_path):
+        """Non-existent context files are silently skipped."""
+        config = _make_config(
+            tmp_path,
+            cluster_context="present",
+            cluster_context_paths=[str(tmp_path / "nope.md")],
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "present" in content
+        assert "nope" not in content
