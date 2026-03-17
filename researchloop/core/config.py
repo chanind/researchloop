@@ -91,6 +91,8 @@ class Config:
     slack: SlackConfig | None = None
     ntfy: NtfyConfig | None = None
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
+    context: str = ""
+    context_paths: list[str] = field(default_factory=list)
     db_path: str = "researchloop.db"
     artifact_dir: str = "artifacts"
     shared_secret: str | None = None
@@ -158,12 +160,18 @@ def _parse_config(data: dict) -> Config:
         password_hash=dashboard_data.get("password_hash"),
     )
 
+    global_ctx = data.get("context_paths", [])
+    if isinstance(global_ctx, str):
+        global_ctx = [global_ctx]
+
     return Config(
         studies=studies,
         clusters=clusters,
         slack=slack,
         ntfy=ntfy,
         dashboard=dashboard,
+        context=data.get("context", ""),
+        context_paths=global_ctx,
         db_path=data.get("db_path", "researchloop.db"),
         artifact_dir=data.get("artifact_dir", "artifacts"),
         shared_secret=data.get("shared_secret"),

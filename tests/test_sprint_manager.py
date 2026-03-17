@@ -143,6 +143,8 @@ class TestSprintManagerCompletion:
 
 def _make_config(
     tmp_path: Path,
+    global_context: str = "",
+    global_context_paths: list[str] | None = None,
     cluster_context: str = "",
     cluster_context_paths: list[str] | None = None,
     study_context: str = "",
@@ -169,6 +171,8 @@ def _make_config(
                 context_paths=cluster_context_paths or [],
             ),
         ],
+        context=global_context,
+        context_paths=global_context_paths or [],
         db_path=":memory:",
         artifact_dir=str(tmp_path / "artifacts"),
         shared_secret="test",
@@ -414,3 +418,84 @@ class TestContextMerging:
         assert content is not None
         assert "present" in content
         assert "nope" not in content
+
+    async def test_global_context_comes_first(self, db_with_study, tmp_path):
+        config = _make_config(
+            tmp_path,
+            global_context="0-global",
+            cluster_context="1-cluster",
+            study_context="2-study",
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert content.index("0-global") < content.index("1-cluster")
+        assert content.index("1-cluster") < content.index("2-study")
+
+    async def test_global_context_file(self, db_with_study, tmp_path):
+        gfile = tmp_path / "global.md"
+        gfile.write_text("Global file content", encoding="utf-8")
+
+        config = _make_config(
+            tmp_path,
+            global_context_paths=[str(gfile)],
+            study_context="study stuff",
+        )
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "Global file content" in content
+        assert content.index("Global file") < content.index("study stuff")
+
+    async def test_global_only(self, db_with_study, tmp_path):
+        """Global context alone still uploads CLAUDE.md."""
+        config = _make_config(tmp_path, global_context="SAELens docs at ...")
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "123"
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.submit_sprint(sprint.id)
+
+        content = _extract_claude_md(ssh_mock)
+        assert content is not None
+        assert "SAELens docs at ..." in content

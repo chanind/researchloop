@@ -148,25 +148,37 @@ class SprintManager:
 
         sprint_dirname = sprint.get("directory", sprint_id)
 
-        # Collect context: inline strings + file paths, cluster then study.
+        # Collect context: global → cluster → study.
+        # Each level supports inline text + file paths.
         context_parts: list[str] = []
 
-        # 1. Cluster inline context.
+        # 1. Global inline context.
+        if self.config.context:
+            context_parts.append(self.config.context)
+
+        # 2. Global context files.
+        for ctx_path in self.config.context_paths:
+            p = Path(ctx_path)
+            if p.exists():
+                context_parts.append(p.read_text(encoding="utf-8"))
+                logger.info("Loaded global context file: %s", p)
+
+        # 3. Cluster inline context.
         if cluster_cfg.context:
             context_parts.append(cluster_cfg.context)
 
-        # 2. Cluster context files.
+        # 4. Cluster context files.
         for ctx_path in cluster_cfg.context_paths:
             p = Path(ctx_path)
             if p.exists():
                 context_parts.append(p.read_text(encoding="utf-8"))
                 logger.info("Loaded cluster context file: %s", p)
 
-        # 3. Study inline context.
+        # 5. Study inline context.
         if study_cfg and study_cfg.context:
             context_parts.append(study_cfg.context)
 
-        # 4. Study context file.
+        # 6. Study context file.
         if study_cfg and study_cfg.claude_md_path:
             p = Path(study_cfg.claude_md_path)
             if p.exists():
