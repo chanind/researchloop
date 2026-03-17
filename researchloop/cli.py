@@ -356,6 +356,74 @@ def study_list(ctx: click.Context) -> None:
     run_async(_study_list(ctx.obj.get("config_path")))
 
 
+# -- study init -----------------------------------------------------
+
+
+_STUDY_CLAUDE_MD_TEMPLATE = """\
+# {name}
+
+## Overview
+<!-- Describe your research area. This context is given to Claude at the
+     start of every sprint so it understands what you're studying. -->
+
+
+## Background
+<!-- Key papers, prior findings, domain knowledge, or links to resources
+     that Claude should be aware of. -->
+
+
+## Codebase
+<!-- Describe any existing code, data formats, or infrastructure the sprint
+     should work with. If there's a repo to clone or files to reference,
+     mention them here. -->
+
+
+## Goals
+<!-- What are you trying to learn, build, or validate? -->
+
+
+## Constraints
+<!-- Any rules the sprints should follow, e.g. language versions, libraries
+     to use or avoid, hardware limitations, output formats. -->
+
+"""
+
+
+@study.command("init")
+@click.argument("name")
+@click.option(
+    "--dir",
+    "directory",
+    type=click.Path(),
+    default=None,
+    help="Directory for study files (default: ./studies/<name>)",
+)
+def study_init(name: str, directory: str | None) -> None:
+    """Scaffold a new study directory with a starter CLAUDE.md."""
+    target = Path(directory) if directory else Path("studies") / name
+    target = target.resolve()
+    target.mkdir(parents=True, exist_ok=True)
+
+    claude_md = target / "CLAUDE.md"
+    if claude_md.exists():
+        raise click.ClickException(f"{claude_md} already exists. Edit it directly.")
+
+    claude_md.write_text(
+        _STUDY_CLAUDE_MD_TEMPLATE.format(name=name),
+        encoding="utf-8",
+    )
+
+    click.echo(click.style("Created ", fg="green") + str(claude_md))
+    click.echo()
+    click.echo("Edit this file to describe your research.")
+    click.echo(
+        "Then set "
+        + click.style("claude_md_path", bold=True)
+        + f' = "{claude_md.relative_to(Path.cwd())}"'
+        + " in your study config."
+    )
+
+
 # -- study show ------------------------------------------------------
 
 
