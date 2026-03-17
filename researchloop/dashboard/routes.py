@@ -36,7 +36,23 @@ def add_dashboard_routes(
 ) -> None:
     """Register all dashboard HTML routes on *app*."""
 
-    session_mgr = SessionManager(secret_key=orchestrator.config.shared_secret or None)
+    # Session signing key — loaded lazily from DB.
+    _session_mgr: SessionManager | None = None
+
+    async def _get_session_mgr() -> SessionManager:
+        nonlocal _session_mgr
+        if _session_mgr is not None:
+            return _session_mgr
+        key: str | None = None
+        if orchestrator.db is not None:
+            row = await orchestrator.db.fetch_one(
+                "SELECT value FROM settings WHERE key = ?",
+                ("signing_key",),
+            )
+            if row:
+                key = row["value"]
+        _session_mgr = SessionManager(secret_key=key)
+        return _session_mgr
 
     # ----------------------------------------------------------
     # Password resolution — config, env, or DB
@@ -78,7 +94,8 @@ def add_dashboard_routes(
         token = request.cookies.get(SESSION_COOKIE)
         if not token:
             return False
-        return session_mgr.verify_token(token)
+        mgr = await _get_session_mgr()
+        return mgr.verify_token(token)
 
     async def _needs_setup() -> bool:
         return await _get_password_hash() is None
@@ -132,7 +149,8 @@ def add_dashboard_routes(
         logger.info("Dashboard password set via first-run setup")
 
         # Auto-login after setup
-        token = session_mgr.create_token()
+        mgr = await _get_session_mgr()
+        token = mgr.create_token()
         response = RedirectResponse("/dashboard/", status_code=303)
         response.set_cookie(
             SESSION_COOKIE,
@@ -162,7 +180,8 @@ def add_dashboard_routes(
         pw_hash = await _get_password_hash()
 
         if pw_hash and check_password(pwd, pw_hash):
-            token = session_mgr.create_token()
+            mgr = await _get_session_mgr()
+            token = mgr.create_token()
             response = RedirectResponse("/dashboard/", status_code=303)
             response.set_cookie(
                 SESSION_COOKIE,

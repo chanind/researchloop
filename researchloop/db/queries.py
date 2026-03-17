@@ -76,12 +76,15 @@ async def create_sprint(
     directory: str | None = None,
 ) -> dict[str, Any]:
     """Insert a new sprint and return it."""
+    import secrets
+
+    webhook_token = secrets.token_hex(16)
     await db.execute(
         """
-        INSERT INTO sprints (id, study_name, idea, directory)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO sprints (id, study_name, idea, directory, webhook_token)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (id, study_name, idea, directory),
+        (id, study_name, idea, directory, webhook_token),
     )
     return await get_sprint(db, id)  # type: ignore[return-value]
 

@@ -18,7 +18,7 @@ SPRINT_ID="{{ sprint_id }}"
 STUDY_NAME="{{ study_name }}"
 SPRINT_DIR="{{ working_dir }}/{{ sprint_dirname }}"
 ORCHESTRATOR_URL="{{ orchestrator_url }}"
-SHARED_SECRET="{{ shared_secret }}"
+WEBHOOK_TOKEN="{{ webhook_token }}"
 CLAUDE_CMD="{{ claude_command }}"
 RED_TEAM_ROUNDS={{ red_team_max_rounds }}
 
@@ -73,7 +73,7 @@ send_webhook() {
     if [ -z "$ORCHESTRATOR_URL" ]; then return; fi
     curl -s -X POST "$ORCHESTRATOR_URL/api/webhook/sprint-complete" \
         -H "Content-Type: application/json" \
-        -H "X-Shared-Secret: $SHARED_SECRET" \
+        -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
         -d "{\"sprint_id\":\"$SPRINT_ID\",\"status\":\"$status\",\"summary\":$(python3 -c "import json; print(json.dumps('$summary'))" 2>/dev/null || echo '""'),\"error\":$(python3 -c "import json; print(json.dumps('$error'))" 2>/dev/null || echo 'null')}" \
         > /dev/null 2>&1 || true
 }

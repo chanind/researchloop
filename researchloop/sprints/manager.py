@@ -307,7 +307,7 @@ class SprintManager:
                 or "claude --dangerously-skip-permissions"
             ),
             orchestrator_url=self.config.orchestrator_url or "",
-            shared_secret=self.config.shared_secret or "",
+            webhook_token=sprint.get("webhook_token", ""),
             red_team_max_rounds=red_team_rounds,
             prompts=prompts,
         )

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS sprints (
     error TEXT,
     summary TEXT,
     session_id TEXT,  -- claude session ID for --resume
+    webhook_token TEXT,  -- per-sprint token for webhook auth
     metadata_json TEXT,
     FOREIGN KEY (study_name) REFERENCES studies(name)
 );
