@@ -247,7 +247,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         check_password,
     )
 
-    _api_session_mgr = SessionManager()
+    # Use shared_secret as the signing key so tokens survive restarts.
+    _api_session_mgr = SessionManager(
+        secret_key=orchestrator.config.shared_secret or None
+    )
 
     async def _get_password_hash() -> str | None:
         """Resolve dashboard password hash from config or DB."""
@@ -268,16 +271,16 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         authorization: str | None = None,
     ) -> None:
         """Raise 401 if neither shared secret nor bearer token is valid."""
-        # Check shared secret first.
-        expected = orchestrator.config.shared_secret
-        if expected and x_shared_secret == expected:
-            return
-
-        # Check bearer token.
+        # Check bearer token (from `researchloop connect`).
         if authorization and authorization.startswith("Bearer "):
             token = authorization[7:]
             if _api_session_mgr.verify_token(token):
                 return
+
+        # Check shared secret (from runner webhooks / config).
+        expected = orchestrator.config.shared_secret
+        if expected and x_shared_secret == expected:
+            return
 
         # If no auth mechanism is configured, allow access.
         if not expected:
