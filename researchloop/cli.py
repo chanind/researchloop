@@ -226,7 +226,7 @@ def init(path: str) -> None:
 
 @cli.command()
 def login() -> None:
-    """Authenticate Claude CLI (runs ``claude login``)."""
+    """Authenticate Claude CLI (runs ``claude auth login``)."""
     import shutil
     import subprocess
 
@@ -237,12 +237,12 @@ def login() -> None:
             "https://docs.anthropic.com/en/docs/claude-code"
         )
 
-    click.echo(click.style("Running claude login...", fg="cyan", bold=True))
+    click.echo(click.style("Running claude auth login...", fg="cyan", bold=True))
     click.echo()
     try:
-        subprocess.run([claude, "login"], check=True)
+        subprocess.run([claude, "auth", "login"], check=True)
     except subprocess.CalledProcessError as exc:
-        raise click.ClickException(f"claude login failed (exit {exc.returncode})")
+        raise click.ClickException(f"claude auth login failed (exit {exc.returncode})")
     except KeyboardInterrupt:
         click.echo("\nAborted.")
 
