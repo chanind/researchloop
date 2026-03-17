@@ -35,7 +35,9 @@ def generate_sprint_id() -> str:
 def format_sprint_dirname(sprint_id: str, idea: str) -> str:
     """Create a directory name for a sprint.
 
-    Format: ``sp-a3f7b2--2026-03-15--19-50--feature-absorption``
+    Format: ``2026-03-15--19-50--sp-a3f7b2--feature-absorption``
+
+    Date comes first so ``ls`` shows sprints in chronological order.
     """
     now = datetime.now(timezone.utc)
     date_part = now.strftime("%Y-%m-%d")
@@ -45,7 +47,7 @@ def format_sprint_dirname(sprint_id: str, idea: str) -> str:
     slug = re.sub(r"-{2,}", "-", slug)
     # Truncate slug to keep directory names reasonable
     slug = slug[:60]
-    return f"{sprint_id}--{date_part}--{time_part}--{slug}"
+    return f"{date_part}--{time_part}--{sprint_id}--{slug}"
 
 
 def _utcnow() -> datetime:

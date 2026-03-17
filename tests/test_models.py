@@ -23,7 +23,7 @@ class TestGenerateSprintId:
 class TestFormatSprintDirname:
     def test_basic(self):
         dirname = format_sprint_dirname("sp-abc123", "Test Feature Absorption")
-        assert dirname.startswith("sp-abc123--")
+        assert "sp-abc123" in dirname
         assert "test-feature-absorption" in dirname
 
     def test_special_chars(self):
@@ -39,14 +39,16 @@ class TestFormatSprintDirname:
         slug = dirname.split("--")[-1]
         assert len(slug) <= 60
 
-    def test_date_time_parts(self):
+    def test_date_first_for_chronological_sort(self):
         dirname = format_sprint_dirname("sp-abc123", "test")
         parts = dirname.split("--")
         assert len(parts) == 4
-        # parts[1] should be YYYY-MM-DD
-        assert re.match(r"\d{4}-\d{2}-\d{2}", parts[1])
-        # parts[2] should be HH-MM
-        assert re.match(r"\d{2}-\d{2}", parts[2])
+        # Date comes first
+        assert re.match(r"\d{4}-\d{2}-\d{2}", parts[0])
+        # Then time
+        assert re.match(r"\d{2}-\d{2}", parts[1])
+        # Then sprint ID
+        assert parts[2] == "sp-abc123"
 
 
 class TestSprintStatus:
