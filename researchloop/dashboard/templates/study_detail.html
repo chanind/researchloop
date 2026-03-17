@@ -9,6 +9,20 @@
     <dt>Sprints directory</dt><dd class="dim">{{ study.sprints_dir }}</dd>
   </dl>
 </div>
+
+<h3>New sprint</h3>
+<div class="card">
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if success %}<p class="success">{{ success }}</p>{% endif %}
+  <form method="post" action="/dashboard/studies/{{ study.name }}/sprint">
+    <div class="form-group">
+      <label for="idea">Research idea</label>
+      <textarea name="idea" id="idea" rows="3" placeholder="Describe what this sprint should investigate..." required></textarea>
+    </div>
+    <button type="submit" class="btn">Submit sprint</button>
+  </form>
+</div>
+
 <h3>Recent sprints</h3>
 <table>
   <thead><tr><th>ID</th><th>Status</th><th>Idea</th><th>Created</th></tr></thead>

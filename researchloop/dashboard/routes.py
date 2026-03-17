@@ -259,9 +259,16 @@ def add_dashboard_routes(
         assert orchestrator.db is not None
 
         sprints = await queries.list_sprints(orchestrator.db, limit=100)
+        study_rows = await queries.list_studies(orchestrator.db)
+        study_names = [s["name"] for s in study_rows]
         return templates.TemplateResponse(
             "sprints.html",
-            _ctx(request, authenticated=True, sprints=sprints),
+            _ctx(
+                request,
+                authenticated=True,
+                sprints=sprints,
+                studies=study_names,
+            ),
         )
 
     @app.get("/dashboard/sprints/{sprint_id}")
@@ -284,6 +291,161 @@ def add_dashboard_routes(
                 artifacts=artifacts,
             ),
         )
+
+    # ----------------------------------------------------------
+    # Sprint actions
+    # ----------------------------------------------------------
+
+    @app.post("/dashboard/sprints/{sprint_id}/refresh")
+    async def dashboard_sprint_refresh(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Check real job status on the cluster and update."""
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+        assert orchestrator.sprint_manager is not None
+
+        sprint = await queries.get_sprint(orchestrator.db, sprint_id)
+        if sprint and sprint.get("job_id"):
+            try:
+                # Resolve cluster config
+                study_name = sprint["study_name"]
+                cluster_cfg = None
+                if orchestrator.study_manager:
+                    cluster_cfg = await orchestrator.study_manager.get_cluster_config(
+                        study_name
+                    )
+
+                if cluster_cfg:
+                    scheduler = orchestrator.sprint_manager.schedulers.get(
+                        cluster_cfg.name
+                    ) or orchestrator.sprint_manager.schedulers.get(
+                        cluster_cfg.scheduler_type
+                    )
+                    if scheduler:
+                        mgr = orchestrator.sprint_manager
+                        conn = {
+                            "host": cluster_cfg.host,
+                            "port": cluster_cfg.port,
+                            "user": cluster_cfg.user,
+                            "key_path": cluster_cfg.key_path,
+                        }
+                        ssh = await mgr.ssh_manager.get_connection(conn)
+                        real_status = await scheduler.status(ssh, sprint["job_id"])
+
+                        terminal = {
+                            "completed",
+                            "failed",
+                            "cancelled",
+                        }
+                        cur = sprint["status"]
+                        if real_status in terminal and cur not in terminal:
+                            from datetime import (
+                                datetime,
+                                timezone,
+                            )
+
+                            now = datetime.now(timezone.utc).isoformat()
+                            await queries.update_sprint(
+                                orchestrator.db,
+                                sprint_id,
+                                status=real_status,
+                                completed_at=now,
+                            )
+
+                        # Read the SLURM log.
+                        sp_dir = sprint.get("directory", "")
+                        wd = cluster_cfg.working_dir
+                        log_pat = f"{wd}/{sp_dir}/.researchloop/slurm-*.out"
+                        stdout, _, _ = await ssh.run(
+                            f"tail -50 {log_pat} 2>/dev/null || echo '(no log found)'"
+                        )
+                        if stdout.strip():
+                            err = f"[{real_status}] Last 50 lines:\n{stdout.strip()}"
+                            await queries.update_sprint(
+                                orchestrator.db,
+                                sprint_id,
+                                error=err if real_status in terminal else None,
+                            )
+            except Exception as exc:
+                logger.warning("Refresh status failed: %s", exc)
+
+        return RedirectResponse(
+            f"/dashboard/sprints/{sprint_id}",
+            status_code=303,
+        )
+
+    @app.post("/dashboard/sprints/{sprint_id}/cancel")
+    async def dashboard_sprint_cancel(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.sprint_manager is not None
+        try:
+            await orchestrator.sprint_manager.cancel_sprint(sprint_id)
+        except Exception as exc:
+            logger.warning("Cancel failed: %s", exc)
+        return RedirectResponse(
+            f"/dashboard/sprints/{sprint_id}",
+            status_code=303,
+        )
+
+    @app.post("/dashboard/sprints/{sprint_id}/delete")
+    async def dashboard_sprint_delete(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+        await queries.delete_sprint(orchestrator.db, sprint_id)
+        return RedirectResponse("/dashboard/sprints", status_code=303)
+
+    @app.post("/dashboard/sprints/new")
+    async def dashboard_sprint_new(request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.sprint_manager is not None
+
+        form = await request.form()
+        study_name = str(form.get("study_name", ""))
+        idea = str(form.get("idea", "")).strip()
+
+        if not study_name or not idea:
+            return RedirectResponse("/dashboard/sprints", status_code=303)
+
+        try:
+            sprint = await orchestrator.sprint_manager.run_sprint(study_name, idea)
+            return RedirectResponse(
+                f"/dashboard/sprints/{sprint.id}",
+                status_code=303,
+            )
+        except Exception as exc:
+            logger.warning("Sprint submission failed: %s", exc)
+            return RedirectResponse("/dashboard/sprints", status_code=303)
+
+    @app.post("/dashboard/studies/{name}/sprint")
+    async def dashboard_study_sprint(name: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.sprint_manager is not None
+
+        form = await request.form()
+        idea = str(form.get("idea", "")).strip()
+
+        if not idea:
+            return RedirectResponse(
+                f"/dashboard/studies/{name}",
+                status_code=303,
+            )
+
+        try:
+            sprint = await orchestrator.sprint_manager.run_sprint(name, idea)
+            return RedirectResponse(
+                f"/dashboard/sprints/{sprint.id}",
+                status_code=303,
+            )
+        except Exception as exc:
+            logger.warning("Sprint submission failed: %s", exc)
+            return RedirectResponse(
+                f"/dashboard/studies/{name}",
+                status_code=303,
+            )
 
     # ----------------------------------------------------------
     # Auto-Loops

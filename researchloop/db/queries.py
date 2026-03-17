@@ -131,6 +131,13 @@ async def update_sprint(db: Database, id: str, **kwargs: Any) -> dict[str, Any] 
     return await get_sprint(db, id)
 
 
+async def delete_sprint(db: Database, id: str) -> None:
+    """Delete a sprint and its related artifacts and events."""
+    await db.execute("DELETE FROM artifacts WHERE sprint_id = ?", [id])
+    await db.execute("DELETE FROM events WHERE sprint_id = ?", [id])
+    await db.execute("DELETE FROM sprints WHERE id = ?", [id])
+
+
 async def get_active_sprints(db: Database) -> list[dict[str, Any]]:
     """Return all sprints whose status is 'running'."""
     return await db.fetch_all(

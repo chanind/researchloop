@@ -12,8 +12,21 @@
     <dt>Created</dt><dd>{{ sprint.created_at }}</dd>
     <dt>Started</dt><dd>{{ sprint.started_at or '—' }}</dd>
     <dt>Completed</dt><dd>{{ sprint.completed_at or '—' }}</dd>
-    {% if sprint.error %}<dt>Error</dt><dd class="error">{{ sprint.error }}</dd>{% endif %}
+    {% if sprint.error %}<dt>Error / Log</dt><dd><pre class="error">{{ sprint.error }}</pre></dd>{% endif %}
   </dl>
+  <div class="actions">
+    <form method="post" action="/dashboard/sprints/{{ sprint.id }}/refresh">
+      <button type="submit" class="btn btn-sm">Refresh status</button>
+    </form>
+    {% if sprint.status not in ('completed', 'failed', 'cancelled') %}
+    <form method="post" action="/dashboard/sprints/{{ sprint.id }}/cancel">
+      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Cancel this sprint?')">Cancel</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/dashboard/sprints/{{ sprint.id }}/delete">
+      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this sprint? This cannot be undone.')">Delete</button>
+    </form>
+  </div>
 </div>
 {% if sprint.summary %}
 <h3>Summary</h3>
