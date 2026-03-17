@@ -355,7 +355,7 @@ def add_dashboard_routes(
                         # Read the SLURM log.
                         sp_dir = sprint.get("directory", "")
                         wd = cluster_cfg.working_dir
-                        log_pat = f"{wd}/{sp_dir}/.researchloop/slurm-*.out"
+                        log_pat = f"{wd}/{sp_dir}/slurm-*.out"
                         stdout, _, _ = await ssh.run(
                             f"tail -50 {log_pat} 2>/dev/null || echo '(no log found)'"
                         )

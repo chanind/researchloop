@@ -1,7 +1,7 @@
 #!/bin/bash
 #$ -N {{ job_name }}
-#$ -o {{ working_dir }}/{{ sprint_dirname }}/.researchloop/sge-$JOB_ID.out
-#$ -e {{ working_dir }}/{{ sprint_dirname }}/.researchloop/sge-$JOB_ID.err
+#$ -o {{ working_dir }}/{{ sprint_dirname }}/sge-$JOB_ID.out
+#$ -e {{ working_dir }}/{{ sprint_dirname }}/sge-$JOB_ID.err
 #$ -l h_rt={{ time_limit }}
 #$ -cwd
 #$ -S /bin/bash

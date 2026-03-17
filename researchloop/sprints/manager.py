@@ -241,7 +241,9 @@ class SprintManager:
         ssh = await self.ssh_manager.get_connection(cluster_dict)
 
         sprint_remote_dir = f"{cluster_cfg.working_dir}/{sprint_dirname}"
-        await ssh.run(f"mkdir -p {sprint_remote_dir}")
+        await ssh.run(
+            f"mkdir -p {sprint_remote_dir}/.researchloop {sprint_remote_dir}/results"
+        )
 
         # Upload merged CLAUDE.md to the sprint directory.
         if has_context:
