@@ -321,7 +321,7 @@ class SprintManager:
         }
         ssh = await self.ssh_manager.get_connection(cluster_dict)
 
-        sprint_remote_dir = f"{cluster_cfg.working_dir}/{sprint_dirname}"
+        sprint_remote_dir = f"{sprints_base}/{sprint_dirname}"
         await ssh.run(
             f"mkdir -p {sprint_remote_dir}/.researchloop {sprint_remote_dir}/results"
         )
