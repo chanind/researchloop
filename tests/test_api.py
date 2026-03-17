@@ -37,7 +37,7 @@ class TestStudiesAPI:
     def test_list_studies(self):
         client, _ = _make_app()
         with client:
-            resp = client.get("/api/studies")
+            resp = client.get("/api/studies", headers={"x-shared-secret": "test-key"})
             assert resp.status_code == 200
             data = resp.json()
             assert len(data["studies"]) == 1
@@ -48,14 +48,15 @@ class TestSprintsAPI:
     def test_list_sprints_empty(self):
         client, _ = _make_app()
         with client:
-            resp = client.get("/api/sprints")
+            resp = client.get("/api/sprints", headers={"x-shared-secret": "test-key"})
             assert resp.status_code == 200
             assert resp.json()["sprints"] == []
 
     def test_get_sprint_not_found(self):
         client, _ = _make_app()
         with client:
-            resp = client.get("/api/sprints/sp-nonexistent")
+            h = {"x-shared-secret": "test-key"}
+            resp = client.get("/api/sprints/sp-nonexistent", headers=h)
             assert resp.status_code == 404
 
     async def test_list_sprints_with_data(self):
@@ -63,7 +64,7 @@ class TestSprintsAPI:
         with client:
             # Insert a sprint directly into DB
             await queries.create_sprint(orch.db, "sp-test01", "test", "idea 1")
-            resp = client.get("/api/sprints")
+            resp = client.get("/api/sprints", headers={"x-shared-secret": "test-key"})
             assert resp.status_code == 200
             assert len(resp.json()["sprints"]) == 1
 
@@ -71,7 +72,8 @@ class TestSprintsAPI:
         client, orch = _make_app()
         with client:
             await queries.create_sprint(orch.db, "sp-test01", "test", "idea 1")
-            resp = client.get("/api/sprints/sp-test01")
+            h = {"x-shared-secret": "test-key"}
+            resp = client.get("/api/sprints/sp-test01", headers=h)
             assert resp.status_code == 200
             assert resp.json()["sprint"]["idea"] == "idea 1"
 
@@ -79,9 +81,10 @@ class TestSprintsAPI:
         client, orch = _make_app()
         with client:
             await queries.create_sprint(orch.db, "sp-001", "test", "idea 1")
-            resp = client.get("/api/sprints?study_name=test")
+            h = {"x-shared-secret": "test-key"}
+            resp = client.get("/api/sprints?study_name=test", headers=h)
             assert len(resp.json()["sprints"]) == 1
-            resp = client.get("/api/sprints?study_name=other")
+            resp = client.get("/api/sprints?study_name=other", headers=h)
             assert len(resp.json()["sprints"]) == 0
 
 

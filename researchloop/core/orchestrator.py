@@ -383,8 +383,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     async def list_sprints(
         study_name: str | None = None,
         limit: int = 50,
+        x_shared_secret: str | None = Header(default=None),
     ) -> JSONResponse:
         """List sprints, optionally filtered by study name."""
+        _check_shared_secret(x_shared_secret)
         assert orchestrator.sprint_manager is not None
         sprints = await orchestrator.sprint_manager.list_sprints(
             study_name=study_name, limit=limit
@@ -392,8 +394,12 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         return JSONResponse({"sprints": sprints})
 
     @app.get("/api/sprints/{sprint_id}")
-    async def get_sprint(sprint_id: str) -> JSONResponse:
+    async def get_sprint(
+        sprint_id: str,
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
         """Get a single sprint by ID."""
+        _check_shared_secret(x_shared_secret)
         assert orchestrator.sprint_manager is not None
         sprint = await orchestrator.sprint_manager.get_sprint(sprint_id)
         if sprint is None:
@@ -401,8 +407,11 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         return JSONResponse({"sprint": sprint})
 
     @app.get("/api/studies")
-    async def list_studies() -> JSONResponse:
+    async def list_studies(
+        x_shared_secret: str | None = Header(default=None),
+    ) -> JSONResponse:
         """List all studies."""
+        _check_shared_secret(x_shared_secret)
         assert orchestrator.study_manager is not None
         studies = await orchestrator.study_manager.list_all()
         return JSONResponse({"studies": studies})
