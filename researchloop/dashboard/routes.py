@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import markdown as _md
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
@@ -29,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Add a markdown filter for rendering reports.
+templates.env.filters["markdown"] = lambda text: _md.markdown(
+    text,
+    extensions=["fenced_code", "tables", "codehilite"],
+)
 
 
 def add_dashboard_routes(
@@ -303,12 +310,15 @@ def add_dashboard_routes(
 
         artifacts = await queries.list_artifacts(orchestrator.db, sprint_id)
 
-        # Extract report from metadata_json if available.
+        # Extract report and has_pdf from metadata_json.
         report = None
+        has_pdf = False
         meta = sprint.get("metadata_json")
         if meta:
             try:
-                report = json.loads(meta).get("report")
+                md = json.loads(meta)
+                report = md.get("report")
+                has_pdf = md.get("has_pdf", False)
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -320,7 +330,25 @@ def add_dashboard_routes(
                 sprint=sprint,
                 artifacts=artifacts,
                 report=report,
+                has_pdf=has_pdf,
             ),
+        )
+
+    @app.get("/dashboard/sprints/{sprint_id}/report.pdf")
+    async def dashboard_sprint_pdf(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Download the sprint's PDF report."""
+        if redir := await _gate(request):
+            return redir
+        pdf_path = Path(orchestrator.config.artifact_dir) / sprint_id / "report.pdf"
+        if not pdf_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="PDF report not found. Try Refresh first.",
+            )
+        return FileResponse(
+            path=str(pdf_path),
+            filename=f"{sprint_id}-report.pdf",
+            media_type="application/pdf",
         )
 
     # ----------------------------------------------------------
@@ -412,6 +440,26 @@ def add_dashboard_routes(
                             f"cat {sprint_path}/report.md 2>/dev/null || true"
                         )
 
+                        # Check if PDF exists.
+                        pdf_path = f"{sprint_path}/results/report.pdf"
+                        _, _, pdf_rc = await ssh.run(f"test -f {pdf_path}")
+                        has_pdf = pdf_rc == 0
+
+                        # If PDF exists, download it locally.
+                        if has_pdf:
+                            art_dir = Path(orchestrator.config.artifact_dir) / sprint_id
+                            art_dir.mkdir(parents=True, exist_ok=True)
+                            local_pdf = art_dir / "report.pdf"
+                            if not local_pdf.exists():
+                                try:
+                                    await ssh.download_file(
+                                        pdf_path,
+                                        str(local_pdf),
+                                    )
+                                except Exception:
+                                    logger.warning("PDF download failed")
+                                    has_pdf = False
+
                         update_kw: dict[str, Any] = {}
                         if summary_out.strip():
                             update_kw["summary"] = summary_out.strip()
@@ -421,10 +469,14 @@ def add_dashboard_routes(
                                 if real_status in terminal
                                 else None
                             )
+
+                        meta_dict: dict[str, Any] = {}
                         if report_out.strip():
-                            update_kw["metadata_json"] = json.dumps(
-                                {"report": report_out.strip()}
-                            )
+                            meta_dict["report"] = report_out.strip()
+                        if has_pdf:
+                            meta_dict["has_pdf"] = True
+                        if meta_dict:
+                            update_kw["metadata_json"] = json.dumps(meta_dict)
                         if update_kw:
                             await queries.update_sprint(
                                 orchestrator.db,
