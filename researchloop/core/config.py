@@ -68,6 +68,7 @@ class SlackConfig:
     signing_secret: str = ""
     channel_id: str | None = None
     allowed_user_ids: list[str] = field(default_factory=list)
+    restrict_to_channel: bool = False
 
 
 @dataclass
@@ -161,6 +162,7 @@ def _parse_config(data: dict) -> Config:
             signing_secret=s.get("signing_secret", ""),
             channel_id=s.get("channel_id"),
             allowed_user_ids=allowed,
+            restrict_to_channel=s.get("restrict_to_channel", False),
         )
 
     ntfy = None

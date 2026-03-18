@@ -662,7 +662,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         allowed = slack_cfg.allowed_user_ids if slack_cfg else []
         if allowed and user_id not in allowed:
             logger.debug(
-                "Ignoring Slack message from unauthorized user %s",
+                "Ignoring message from unauthorized user %s",
                 user_id,
             )
             return JSONResponse({"ok": True})
@@ -670,6 +670,23 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         text: str = event.get("text", "")
         thread_ts: str = event.get("thread_ts") or event.get("ts", "")
         channel: str = event.get("channel", "")
+        channel_type: str = event.get("channel_type", "")
+
+        # Restrict to configured channel if enabled.
+        # DMs (channel_type "im") are always allowed.
+        if (
+            slack_cfg
+            and slack_cfg.restrict_to_channel
+            and slack_cfg.channel_id
+            and channel != slack_cfg.channel_id
+            and channel_type != "im"
+        ):
+            logger.debug(
+                "Ignoring message in channel %s (not %s)",
+                channel,
+                slack_cfg.channel_id,
+            )
+            return JSONResponse({"ok": True})
         text_lower = text.lower().strip()
 
         # Handle "auth status" / "login" commands
