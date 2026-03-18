@@ -653,8 +653,9 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         event = body.get("event", {})
         event_type = event.get("type", "")
 
-        # Ignore bot messages to avoid loops
-        if event.get("bot_id"):
+        # Ignore bot messages to avoid loops.
+        # Check bot_id, subtype, and app_id.
+        if event.get("bot_id") or event.get("subtype"):
             return JSONResponse({"ok": True})
 
         if event_type not in ("app_mention", "message"):
