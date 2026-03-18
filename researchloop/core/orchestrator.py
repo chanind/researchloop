@@ -98,9 +98,6 @@ class Orchestrator:
             self.notification_router.add_notifier(slack_notifier)
             logger.info("Slack notifier configured")
 
-        # 5b. Conversation manager
-        self.conversation_manager = ConversationManager(self.db)
-
         # 6. Sprint manager
         self.sprint_manager = SprintManager(
             db=self.db,
@@ -109,6 +106,11 @@ class Orchestrator:
             schedulers=self.schedulers,
             study_manager=self.study_manager,
             notification_router=self.notification_router,
+        )
+
+        # 6b. Conversation manager
+        self.conversation_manager = ConversationManager(
+            self.db, sprint_manager=self.sprint_manager
         )
 
         # 7. Auto-loop controller
