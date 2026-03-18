@@ -489,8 +489,10 @@ def add_dashboard_routes(
                         update_kw: dict[str, Any] = {}
 
                         # Update idea if generated.
-                        if idea_out.strip() and sprint.get("idea", "").startswith(
-                            "[loop"
+                        cur_idea = sprint.get("idea", "")
+                        if idea_out.strip() and (
+                            cur_idea.startswith("[loop")
+                            or cur_idea.startswith("[auto-loop")
                         ):
                             update_kw["idea"] = idea_out.strip()[:200]
 
@@ -632,14 +634,17 @@ def add_dashboard_routes(
         if loop is None:
             raise HTTPException(status_code=404, detail="Loop not found")
 
-        # Get all sprints that were part of this loop.
-        # Match by study + idea containing the loop ID.
+        # Get sprints belonging to this loop.
         all_sprints = await queries.list_sprints(
             orchestrator.db,
             study_name=loop["study_name"],
             limit=200,
         )
-        loop_sprints = [sp for sp in all_sprints if loop_id in (sp.get("idea") or "")]
+        loop_sprints = [
+            sp
+            for sp in all_sprints
+            if sp.get("loop_id") == loop_id or loop_id in (sp.get("idea") or "")
+        ]
 
         # Extract context from metadata_json.
         context = ""

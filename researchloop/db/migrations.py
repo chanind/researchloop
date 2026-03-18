@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS sprints (
     summary TEXT,
     session_id TEXT,  -- claude session ID for --resume
     webhook_token TEXT,  -- per-sprint token for webhook auth
+    loop_id TEXT,  -- auto-loop ID if part of a loop
     metadata_json TEXT,
     FOREIGN KEY (study_name) REFERENCES studies(name)
 );
@@ -114,6 +115,7 @@ async def run_migrations(db: Database) -> None:
 
     # Incremental column migrations for existing databases.
     await _add_column_if_missing(db, "sprints", "webhook_token", "TEXT")
+    await _add_column_if_missing(db, "sprints", "loop_id", "TEXT")
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
 
     await db._conn.commit()
