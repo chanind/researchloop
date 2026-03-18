@@ -702,17 +702,65 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     channel_id=channel,
                 )
                 if ok:
-                    msg = ":white_check_mark: Claude is authenticated on this server."
+                    msg = (
+                        ":white_check_mark: Claude is"
+                        f" authenticated on this server ({detail})."
+                    )
                 else:
                     msg = (
-                        f":x: {detail}\n"
-                        "Run `researchloop login` on the "
-                        "orchestrator server to authenticate."
+                        ":information_source: Claude is not"
+                        " authenticated on this server"
+                        " (not required — AI runs on the"
+                        " HPC cluster)."
                     )
                 await notifier._post_message(msg, thread_ts=thread_ts)
             return JSONResponse({"ok": True})
 
-        # Handle "sprint run <study> <idea>" commands
+        # Handle "help" command.
+        if text_lower in ("help", "hi", "hello"):
+            if slack_cfg and slack_cfg.bot_token:
+                notifier = SlackNotifier(
+                    bot_token=slack_cfg.bot_token,
+                    channel_id=channel,
+                )
+                await notifier._post_message(
+                    "Available commands:\n"
+                    "• `sprint run <study> <idea>`"
+                    " — start a sprint\n"
+                    "• `sprint list` — list recent sprints\n"
+                    "• `loop start <study> <count>`"
+                    " — start an auto-loop\n"
+                    "• `auth status` — check Claude auth\n"
+                    "• `help` — show this message",
+                    thread_ts=thread_ts,
+                )
+            return JSONResponse({"ok": True})
+
+        # Handle "sprint list" command.
+        if "sprint list" in text_lower:
+            if orchestrator.sprint_manager and slack_cfg and slack_cfg.bot_token:
+                notifier = SlackNotifier(
+                    bot_token=slack_cfg.bot_token,
+                    channel_id=channel,
+                )
+                sprints = await orchestrator.sprint_manager.list_sprints(limit=10)
+                if not sprints:
+                    await notifier._post_message(
+                        "No sprints found.",
+                        thread_ts=thread_ts,
+                    )
+                else:
+                    lines = [
+                        f"• *{s['id']}* [{s['status']}] {(s.get('idea') or '')[:50]}"
+                        for s in sprints
+                    ]
+                    await notifier._post_message(
+                        "Recent sprints:\n" + "\n".join(lines),
+                        thread_ts=thread_ts,
+                    )
+            return JSONResponse({"ok": True})
+
+        # Handle "sprint run <study> <idea>" commands.
         if "sprint run" in text.lower():
             parts = text.lower().split("sprint run", 1)[1]
             tokens = parts.strip().split(None, 1)
@@ -745,18 +793,21 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                     )
                 return JSONResponse({"ok": True})
 
-        # Conversational mode via ConversationManager
-        cm = orchestrator.conversation_manager
-        if cm is not None and slack_cfg and slack_cfg.bot_token:
-            response_text = await cm.handle_message(
-                thread_ts=thread_ts,
-                user_text=text,
-            )
+        # Unknown command — reply with help text.
+        if slack_cfg and slack_cfg.bot_token:
             notifier = SlackNotifier(
                 bot_token=slack_cfg.bot_token,
                 channel_id=channel,
             )
-            await notifier._post_message(response_text, thread_ts=thread_ts)
+            help_text = (
+                "Available commands:\n"
+                "• `sprint run <study> <idea>` — start a sprint\n"
+                "• `sprint list` — list recent sprints\n"
+                "• `loop start <study> <count>` — start an auto-loop\n"
+                "• `auth status` — check Claude auth\n"
+                "• `help` — show this message"
+            )
+            await notifier._post_message(help_text, thread_ts=thread_ts)
 
         return JSONResponse({"ok": True})
 
