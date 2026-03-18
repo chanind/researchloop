@@ -36,9 +36,7 @@
       <td class="dim">{{ sp.created_at }}</td>
       <td>
         {% if sp.status.startswith('running') or sp.status == 'submitted' %}
-        <form method="post" action="/dashboard/sprints/{{ sp.id }}/refresh" style="display:inline" onsubmit="this.querySelector('.refresh-btn').innerHTML='<span class=spinning>&#8635;</span>'">
-          <button type="submit" class="refresh-btn" title="Refresh status">&#8635;</button>
-        </form>
+        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST'}).then(function(){location.reload()})">&#8635;</button>
         {% endif %}
       </td>
     </tr>

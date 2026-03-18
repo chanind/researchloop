@@ -20,8 +20,8 @@
   </dl>
   <div class="actions" style="justify-content: space-between;">
     <div style="display: flex; gap: 0.5rem;">
-      <form method="post" action="/dashboard/sprints/{{ sprint.id }}/refresh">
-        <button type="submit" class="btn btn-sm">Refresh status</button>
+      <form method="post" action="/dashboard/sprints/{{ sprint.id }}/refresh" onsubmit="this.querySelector('button').innerHTML='<span class=spinning style=display:inline-block>&#8635;</span> Refreshing...'">
+        <button type="submit" class="btn btn-sm">&#8635; Refresh status</button>
       </form>
       {% if sprint.status not in ('completed', 'failed', 'cancelled') %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/cancel">
