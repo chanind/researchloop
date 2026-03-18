@@ -444,7 +444,7 @@ def add_dashboard_routes(
                         )
 
                         # Check if PDF exists.
-                        pdf_path = f"{sprint_path}/results/report.pdf"
+                        pdf_path = f"{sprint_path}/report.pdf"
                         _, _, pdf_rc = await ssh.run(f"test -f {pdf_path}")
                         has_pdf = pdf_rc == 0
 
