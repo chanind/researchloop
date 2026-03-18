@@ -162,6 +162,25 @@ Secrets and sensitive settings can be configured via environment variables inste
 
 This means your `researchloop.toml` can contain only non-secret structural config (clusters, studies), while secrets live in env vars or your deployment platform's secret manager.
 
+### Slack integration
+
+1. Go to https://api.slack.com/apps → **Create New App** → **From an app manifest**
+2. Select your workspace, then paste the contents of [`slack-app-manifest.yml`](slack-app-manifest.yml)
+3. Replace `YOUR_URL` with your orchestrator URL (e.g. `https://your-app.fly.dev`)
+4. Click **Create** → **Install to Workspace**
+5. Copy the **Bot User OAuth Token** and **Signing Secret** from the app settings
+6. Set the secrets:
+   ```bash
+   fly secrets set \
+     RESEARCHLOOP_SLACK_BOT_TOKEN="xoxb-..." \
+     RESEARCHLOOP_SLACK_SIGNING_SECRET="..." \
+     RESEARCHLOOP_SLACK_CHANNEL_ID="U-your-user-id" \
+     RESEARCHLOOP_SLACK_ALLOWED_USER_IDS="U-your-user-id" \
+     -a your-app
+   ```
+
+The bot responds to DMs and @mentions with commands like `sprint run`, `sprint list`, and `help`. Set `channel_id` to your Slack user ID to receive notifications as DMs.
+
 ### Run a sprint
 
 ```bash
