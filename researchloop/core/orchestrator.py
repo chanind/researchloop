@@ -93,6 +93,7 @@ class Orchestrator:
             slack_notifier = SlackNotifier(
                 bot_token=self.config.slack.bot_token,
                 channel_id=self.config.slack.channel_id,
+                dashboard_url=self.config.orchestrator_url,
             )
             self.notification_router.add_notifier(slack_notifier)
             logger.info("Slack notifier configured")

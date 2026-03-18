@@ -24,9 +24,11 @@ class SlackNotifier(BaseNotifier):
         self,
         bot_token: str,
         channel_id: str | None = None,
+        dashboard_url: str | None = None,
     ) -> None:
         self.bot_token = bot_token
         self.channel_id = channel_id
+        self.dashboard_url = dashboard_url
 
     async def _post_message(
         self,
@@ -59,16 +61,21 @@ class SlackNotifier(BaseNotifier):
                 logger.error("Slack API error: %s", data.get("error"))
             return data
 
+    def _link(self, sprint_id: str) -> str:
+        if self.dashboard_url:
+            url = self.dashboard_url.rstrip("/")
+            return f"<{url}/dashboard/sprints/{sprint_id}|{sprint_id}>"
+        return sprint_id
+
     async def notify_sprint_started(
         self,
         sprint_id: str,
         study_name: str,
         idea: str,
     ) -> None:
+        link = self._link(sprint_id)
         await self._post_message(
-            f":rocket: *Sprint {sprint_id}* started\n"
-            f"*Study:* {study_name}\n"
-            f"*Idea:* {idea}"
+            f":rocket: Sprint *{link}* started\n*Study:* {study_name}\n*Idea:* {idea}"
         )
 
     async def notify_sprint_completed(
@@ -77,8 +84,9 @@ class SlackNotifier(BaseNotifier):
         study_name: str,
         summary: str,
     ) -> None:
+        link = self._link(sprint_id)
         await self._post_message(
-            f":white_check_mark: *Sprint {sprint_id}* completed\n"
+            f":white_check_mark: Sprint *{link}* completed\n"
             f"*Study:* {study_name}\n"
             f"*Summary:* {summary}"
         )
@@ -89,8 +97,9 @@ class SlackNotifier(BaseNotifier):
         study_name: str,
         error: str,
     ) -> None:
+        link = self._link(sprint_id)
         await self._post_message(
-            f":x: *Sprint {sprint_id}* failed\n*Study:* {study_name}\n*Error:* {error}"
+            f":x: Sprint *{link}* failed\n*Study:* {study_name}\n*Error:* {error[:500]}"
         )
 
 

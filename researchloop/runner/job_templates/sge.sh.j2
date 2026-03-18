@@ -118,11 +118,19 @@ print(json.dumps({
     'error': sys.argv[3] or None,
 }))
 " "$status" "$summary" "$error" 2>/dev/null)
-    curl -s -X POST "$ORCHESTRATOR_URL/api/webhook/sprint-complete" \
-        -H "Content-Type: application/json" \
-        -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
-        -d "$payload" \
-        > /dev/null 2>&1 || true
+    for attempt in 1 2 3; do
+        if curl -s --max-time 30 -X POST \
+            "$ORCHESTRATOR_URL/api/webhook/sprint-complete" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_TOKEN" \
+            -d "$payload" > /dev/null 2>&1; then
+            log "Webhook sent (attempt $attempt)"
+            return
+        fi
+        log "Webhook attempt $attempt failed, retrying in 10s..."
+        sleep 10
+    done
+    log "WARNING: Webhook failed after 3 attempts"
 }
 
 # --- Write prompt files (pre-rendered by orchestrator) ---
