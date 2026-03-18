@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
@@ -301,6 +302,16 @@ def add_dashboard_routes(
             raise HTTPException(status_code=404, detail="Sprint not found")
 
         artifacts = await queries.list_artifacts(orchestrator.db, sprint_id)
+
+        # Extract report from metadata_json if available.
+        report = None
+        meta = sprint.get("metadata_json")
+        if meta:
+            try:
+                report = json.loads(meta).get("report")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         return templates.TemplateResponse(
             "sprint_detail.html",
             _ctx(
@@ -308,6 +319,7 @@ def add_dashboard_routes(
                 authenticated=True,
                 sprint=sprint,
                 artifacts=artifacts,
+                report=report,
             ),
         )
 
@@ -371,19 +383,53 @@ def add_dashboard_routes(
                                 completed_at=now,
                             )
 
-                        # Read the SLURM log.
+                        # Resolve sprints_base the same way
+                        # sprint manager does.
+                        study_cfg = None
+                        for s in orchestrator.config.studies:
+                            if s.name == study_name:
+                                study_cfg = s
+                                break
+                        if study_cfg and study_cfg.sprints_dir:
+                            sbase = study_cfg.sprints_dir
+                        else:
+                            sbase = f"{cluster_cfg.working_dir}/{study_name}"
                         sp_dir = sprint.get("directory", "")
-                        wd = cluster_cfg.working_dir
-                        log_pat = f"{wd}/{sp_dir}/slurm-*.out"
+                        log_pat = f"{sbase}/{sp_dir}/slurm-*.out"
+                        sprint_path = f"{sbase}/{sp_dir}"
+
+                        # Read SLURM log.
                         stdout, _, _ = await ssh.run(
                             f"tail -50 {log_pat} 2>/dev/null || echo '(no log found)'"
                         )
-                        if stdout.strip():
-                            err = f"[{real_status}] Last 50 lines:\n{stdout.strip()}"
+                        log_text = stdout.strip()
+
+                        # Read summary and report from cluster.
+                        summary_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/summary.txt 2>/dev/null || true"
+                        )
+                        report_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/report.md 2>/dev/null || true"
+                        )
+
+                        update_kw: dict[str, Any] = {}
+                        if summary_out.strip():
+                            update_kw["summary"] = summary_out.strip()
+                        if log_text:
+                            update_kw["error"] = (
+                                f"[{real_status}] Log:\n{log_text}"
+                                if real_status in terminal
+                                else None
+                            )
+                        if report_out.strip():
+                            update_kw["metadata_json"] = json.dumps(
+                                {"report": report_out.strip()}
+                            )
+                        if update_kw:
                             await queries.update_sprint(
                                 orchestrator.db,
                                 sprint_id,
-                                error=err if real_status in terminal else None,
+                                **update_kw,
                             )
             except Exception as exc:
                 logger.warning("Refresh status failed: %s", exc)

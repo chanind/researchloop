@@ -12,7 +12,6 @@
     <dt>Created</dt><dd>{{ sprint.created_at }}</dd>
     <dt>Started</dt><dd>{{ sprint.started_at or '—' }}</dd>
     <dt>Completed</dt><dd>{{ sprint.completed_at or '—' }}</dd>
-    {% if sprint.error %}<dt>Error / Log</dt><dd><pre class="error">{{ sprint.error }}</pre></dd>{% endif %}
   </dl>
   <div class="actions">
     <form method="post" action="/dashboard/sprints/{{ sprint.id }}/refresh">
@@ -31,6 +30,14 @@
 {% if sprint.summary %}
 <h3>Summary</h3>
 <div class="card"><p>{{ sprint.summary }}</p></div>
+{% endif %}
+{% if report %}
+<h3>Report</h3>
+<div class="card"><pre style="white-space: pre-wrap; word-wrap: break-word;">{{ report }}</pre></div>
+{% endif %}
+{% if sprint.error %}
+<h3>Log</h3>
+<div class="card"><pre style="white-space: pre-wrap; word-wrap: break-word; color: #94a3b8;">{{ sprint.error }}</pre></div>
 {% endif %}
 {% if artifacts %}
 <h3>Artifacts</h3>
