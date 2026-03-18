@@ -347,8 +347,8 @@ def add_dashboard_routes(
             )
         return FileResponse(
             path=str(pdf_path),
-            filename=f"{sprint_id}-report.pdf",
             media_type="application/pdf",
+            headers={"Content-Disposition": "inline"},
         )
 
     # ----------------------------------------------------------
