@@ -12,6 +12,7 @@
     <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
     <dt>Status</dt><dd><span class="badge badge-{{ sprint.status.split(' ')[0] }}">{{ sprint.status }}</span></dd>
     <dt>Idea</dt><dd>{% if sprint.idea %}{{ sprint.idea }}{% elif sprint.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% else %}—{% endif %}</dd>
+    {% if sprint.loop_id %}<dt>Loop</dt><dd><a href="/dashboard/loops/{{ sprint.loop_id }}">{{ sprint.loop_id }}</a></dd>{% endif %}
     <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
     <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>
     <dt>Created</dt><dd>{{ sprint.created_at }}</dd>

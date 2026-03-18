@@ -25,14 +25,15 @@
 {% endif %}
 
 <table>
-  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Idea</th><th>Created</th><th></th></tr></thead>
+  <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Idea</th><th>Loop</th><th>Created</th><th></th></tr></thead>
   <tbody>
   {% for sp in sprints %}
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
       <td><a href="/dashboard/studies/{{ sp.study_name }}">{{ sp.study_name }}</a></td>
       <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
-      <td>{% if sp.loop_id %}<span title="Auto-loop sprint" style="font-size:0.75rem">&#128260;</span> {% endif %}{% if sp.idea %}{{ sp.idea[:50] }}{% if sp.idea|length > 50 %}…{% endif %}{% elif sp.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% endif %}</td>
+      <td>{% if sp.idea %}{{ sp.idea[:50] }}{% if sp.idea|length > 50 %}…{% endif %}{% elif sp.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% endif %}</td>
+      <td>{% if sp.loop_id %}<a href="/dashboard/loops/{{ sp.loop_id }}" class="dim" style="font-size:0.85rem">{{ sp.loop_id }}</a>{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
       <td>
         {% if sp.status.startswith('running') or sp.status == 'submitted' %}

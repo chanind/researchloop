@@ -231,6 +231,13 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # -- Root redirect ---------------------------------------------------
+    @app.get("/")
+    async def root():  # type: ignore[no-untyped-def]
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse("/dashboard/", status_code=303)
+
     # -- CORS middleware ------------------------------------------------
     app.add_middleware(
         CORSMiddleware,
