@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 import shutil
@@ -56,11 +57,16 @@ class AutoLoopController:
     # Start
     # ------------------------------------------------------------------
 
-    async def start(self, study_name: str, count: int) -> str:
+    async def start(
+        self,
+        study_name: str,
+        count: int,
+        context: str = "",
+    ) -> str:
         """Start a new auto-loop for *study_name* with *count* sprints.
 
-        Creates the auto-loop record in the database, kicks off the
-        first sprint with a placeholder idea, and returns the loop ID.
+        *context* is optional guidance for the idea generator
+        (e.g. "Focus on improving F1 score").
 
         Raises ``ValueError`` if the study has ``allow_loop = false``.
         """
@@ -78,6 +84,14 @@ class AutoLoopController:
             total_count=count,
         )
 
+        # Store loop context for idea generation.
+        if context:
+            await queries.update_auto_loop(
+                self.db,
+                loop_id,
+                metadata_json=json.dumps({"context": context}),
+            )
+
         logger.info(
             "Auto-loop %s started for study %r with %d sprints",
             loop_id,
@@ -85,9 +99,10 @@ class AutoLoopController:
             count,
         )
 
-        # Kick off the first sprint with a placeholder idea.
-        first_idea = f"Auto-loop {loop_id} sprint 1/{count}"
-        sprint = await self.sprint_manager.run_sprint(study_name, first_idea)
+        # First sprint — idea will be auto-generated on the cluster.
+        sprint = await self.sprint_manager.run_sprint(
+            study_name, f"[auto-loop {loop_id}]"
+        )
 
         await queries.update_auto_loop(
             self.db,
@@ -153,18 +168,11 @@ class AutoLoopController:
             )
             return
 
-        # Generate the next idea and kick off the next sprint.
-        next_num = completed + 1
-        idea = await self._generate_next_idea(
-            loop_id=loop_id,
-            study_name=study_name,
-            sprint_number=next_num,
-            total=total,
-        )
-
+        # Submit next sprint — idea will be auto-generated
+        # on the cluster where Claude is authenticated.
         sprint = await self.sprint_manager.run_sprint(
             study_name,
-            idea,
+            f"[auto-loop {loop_id}]",
         )
 
         await queries.update_auto_loop(
@@ -176,7 +184,7 @@ class AutoLoopController:
         logger.info(
             "Auto-loop %s: started sprint %d/%d (%s)",
             loop_id,
-            next_num,
+            completed + 1,
             total,
             sprint.id,
         )

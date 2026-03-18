@@ -151,17 +151,14 @@ class TestOnSprintCompleteStartsNext:
             completed_count=0,
         )
 
-        with patch("researchloop.sprints.auto_loop.shutil") as mock_shutil:
-            mock_shutil.which.return_value = None
-            await ctrl.on_sprint_complete("sp-done")
+        await ctrl.on_sprint_complete("sp-done")
 
-        # run_sprint was called with the fallback idea.
+        # run_sprint was called with auto-loop marker.
         ctrl.sprint_manager.run_sprint.assert_called_once()
         call_args = ctrl.sprint_manager.run_sprint.call_args
         assert call_args[0][0] == "test-study"
         idea_text = call_args[0][1]
-        assert "auto-loop loop-ccc" in idea_text
-        assert "sprint 2/3" in idea_text
+        assert "[auto-loop loop-ccc]" in idea_text
 
         # current_sprint_id updated.
         loop = await queries.get_auto_loop(

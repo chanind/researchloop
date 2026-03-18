@@ -893,13 +893,20 @@ def loop() -> None:
 # -- loop start -------------------------------------------------------
 
 
-def _loop_start(config_path: str | None, study_name: str, count: int) -> None:
+def _loop_start(
+    config_path: str | None,
+    study_name: str,
+    count: int,
+    context: str,
+) -> None:
     config = _try_load_config(config_path)
-    result = _api_post(
-        config,
-        "/api/loops",
-        {"study_name": study_name, "count": count},
-    )
+    body: dict[str, Any] = {
+        "study_name": study_name,
+        "count": count,
+    }
+    if context:
+        body["context"] = context
+    result = _api_post(config, "/api/loops", body)
 
     click.echo()
     click.echo(click.style("Auto-loop started!", fg="green", bold=True))
@@ -909,16 +916,41 @@ def _loop_start(config_path: str | None, study_name: str, count: int) -> None:
     )
     click.echo(click.style("  Study : ", dim=True) + study_name)
     click.echo(click.style("  Count : ", dim=True) + str(count))
+    if context:
+        click.echo(click.style("  Context: ", dim=True) + context[:80])
     click.echo()
 
 
 @loop.command("start")
-@click.option("--study", "-s", "study_name", required=True, help="Study name")
-@click.option("--count", "-n", default=3, type=int, help="Number of sprints to run")
+@click.option(
+    "--study",
+    "-s",
+    "study_name",
+    required=True,
+    help="Study name",
+)
+@click.option(
+    "--count",
+    "-n",
+    default=3,
+    type=int,
+    help="Number of sprints to run",
+)
+@click.option(
+    "--context",
+    "-m",
+    default="",
+    help="Guidance for the idea generator (e.g. topics, paper links)",
+)
 @click.pass_context
-def loop_start(ctx: click.Context, study_name: str, count: int) -> None:
+def loop_start(
+    ctx: click.Context,
+    study_name: str,
+    count: int,
+    context: str,
+) -> None:
     """Start an auto-loop."""
-    _loop_start(ctx.obj.get("config_path"), study_name, count)
+    _loop_start(ctx.obj.get("config_path"), study_name, count, context)
 
 
 # -- loop status -------------------------------------------------------

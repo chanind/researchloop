@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS auto_loops (
     status TEXT NOT NULL DEFAULT 'running',  -- running, completed, stopped, failed
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     stopped_at TEXT,
+    metadata_json TEXT,
     FOREIGN KEY (study_name) REFERENCES studies(name)
 );
 
@@ -113,5 +114,6 @@ async def run_migrations(db: Database) -> None:
 
     # Incremental column migrations for existing databases.
     await _add_column_if_missing(db, "sprints", "webhook_token", "TEXT")
+    await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
 
     await db._conn.commit()

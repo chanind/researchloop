@@ -593,7 +593,8 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 status_code=400,
                 detail="study_name is required",
             )
-        loop_id = await orchestrator.auto_loop.start(study_name, count)
+        context = body.get("context", "")
+        loop_id = await orchestrator.auto_loop.start(study_name, count, context=context)
         return JSONResponse({"loop_id": loop_id}, status_code=201)
 
     @app.post("/api/loops/{loop_id}/stop")

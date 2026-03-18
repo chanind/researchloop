@@ -279,6 +279,53 @@ class SprintManager:
             }
         )
 
+        # If this is an auto-loop sprint, add the idea generator
+        # prompt so the job generates its own idea on the cluster.
+        if idea.startswith("[auto-loop"):
+            # Find the loop for extra context.
+            loop_context = ""
+            all_loops = await queries.list_auto_loops(self.db)
+            for lp in all_loops:
+                if lp.get("current_sprint_id") == sprint_id:
+                    meta = lp.get("metadata_json")
+                    if meta:
+                        try:
+                            import json as _json
+
+                            loop_context = _json.loads(meta).get("context", "")
+                        except Exception:
+                            pass
+                    break
+
+            # Collect previous summaries.
+            prev_sprints = await queries.list_sprints(
+                self.db, study_name=study_name, limit=50
+            )
+            prev_summaries = [
+                {
+                    "id": s["id"],
+                    "summary": s.get("summary", ""),
+                }
+                for s in prev_sprints
+                if s.get("summary")
+            ]
+
+            # Build the idea generator prompt with loop context.
+            idea_prompt = _render_prompt(
+                "idea_generator.md.j2",
+                study_context=study_context,
+                previous_sprints=prev_summaries,
+            )
+            if loop_context:
+                idea_prompt += f"\n\n## Additional Guidance\n{loop_context}\n"
+
+            prompts.append(
+                {
+                    "filename": "prompt_generate_idea.md",
+                    "content_b64": _b64encode(idea_prompt),
+                }
+            )
+
         # Render the job script.
         template_name = f"{cluster_cfg.scheduler_type}.sh.j2"
         template = _jinja_env.get_template(template_name)
