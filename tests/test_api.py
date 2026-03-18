@@ -241,6 +241,180 @@ class TestArtifactUpload:
             assert resp.status_code == 404
 
 
+class TestCreateSprint:
+    """POST /api/sprints creates and returns sprint."""
+
+    def test_create_sprint_success(self):
+        from unittest.mock import AsyncMock, patch
+
+        from researchloop.core.models import (
+            Sprint,
+            SprintStatus,
+        )
+
+        client, orch = _make_app()
+        mock_sprint = Sprint(
+            id="sp-new01",
+            study_name="test",
+            idea="test idea",
+            status=SprintStatus.SUBMITTED,
+            job_id="42",
+        )
+        with client:
+            with patch.object(
+                orch.sprint_manager,
+                "run_sprint",
+                new_callable=AsyncMock,
+                return_value=mock_sprint,
+            ) as mock_run:
+                resp = client.post(
+                    "/api/sprints",
+                    json={
+                        "study_name": "test",
+                        "idea": "test idea",
+                    },
+                    headers={"x-shared-secret": "test-key"},
+                )
+                assert resp.status_code == 201
+                data = resp.json()
+                assert data["sprint_id"] == "sp-new01"
+                assert data["status"] == "submitted"
+                assert data["job_id"] == "42"
+                mock_run.assert_called_once()
+
+    def test_create_sprint_missing_fields(self):
+        client, _ = _make_app()
+        with client:
+            h = {"x-shared-secret": "test-key"}
+            resp = client.post(
+                "/api/sprints",
+                json={"study_name": "test"},
+                headers=h,
+            )
+            assert resp.status_code == 400
+
+            resp = client.post(
+                "/api/sprints",
+                json={"idea": "something"},
+                headers=h,
+            )
+            assert resp.status_code == 400
+
+
+class TestCancelSprint:
+    """POST /api/sprints/{id}/cancel."""
+
+    def test_cancel_sprint(self):
+        from unittest.mock import AsyncMock, patch
+
+        client, orch = _make_app()
+        with client:
+            with patch.object(
+                orch.sprint_manager,
+                "cancel_sprint",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_cancel:
+                resp = client.post(
+                    "/api/sprints/sp-001/cancel",
+                    headers={"x-shared-secret": "test-key"},
+                )
+                assert resp.status_code == 200
+                assert resp.json()["cancelled"] is True
+                mock_cancel.assert_called_once_with("sp-001")
+
+    def test_cancel_sprint_returns_false(self):
+        from unittest.mock import AsyncMock, patch
+
+        client, orch = _make_app()
+        with client:
+            with patch.object(
+                orch.sprint_manager,
+                "cancel_sprint",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                resp = client.post(
+                    "/api/sprints/sp-001/cancel",
+                    headers={"x-shared-secret": "test-key"},
+                )
+                assert resp.status_code == 200
+                assert resp.json()["cancelled"] is False
+
+
+class TestCreateLoop:
+    """POST /api/loops creates loop."""
+
+    def test_create_loop_success(self):
+        from unittest.mock import AsyncMock, patch
+
+        client, orch = _make_app()
+        with client:
+            with patch.object(
+                orch.auto_loop,
+                "start",
+                new_callable=AsyncMock,
+                return_value="loop-abc",
+            ) as mock_start:
+                resp = client.post(
+                    "/api/loops",
+                    json={
+                        "study_name": "test",
+                        "count": 3,
+                    },
+                    headers={"x-shared-secret": "test-key"},
+                )
+                assert resp.status_code == 201
+                assert resp.json()["loop_id"] == "loop-abc"
+                mock_start.assert_called_once()
+
+    def test_create_loop_missing_study(self):
+        client, _ = _make_app()
+        with client:
+            resp = client.post(
+                "/api/loops",
+                json={"count": 5},
+                headers={"x-shared-secret": "test-key"},
+            )
+            assert resp.status_code == 400
+
+
+class TestStopLoop:
+    """POST /api/loops/{id}/stop."""
+
+    def test_stop_loop(self):
+        from unittest.mock import AsyncMock, patch
+
+        client, orch = _make_app()
+        with client:
+            with patch.object(
+                orch.auto_loop,
+                "stop",
+                new_callable=AsyncMock,
+            ) as mock_stop:
+                resp = client.post(
+                    "/api/loops/loop-001/stop",
+                    headers={"x-shared-secret": "test-key"},
+                )
+                assert resp.status_code == 200
+                assert resp.json()["stopped"] is True
+                mock_stop.assert_called_once_with("loop-001")
+
+
+class TestAuthNoPassword:
+    """POST /api/auth returns 400 when no password configured."""
+
+    def test_auth_no_password_configured(self):
+        client, _ = _make_app(password_hash=None)
+        with client:
+            resp = client.post(
+                "/api/auth",
+                json={"password": "anything"},
+            )
+            assert resp.status_code == 400
+            assert "No password" in resp.json()["detail"]
+
+
 class TestTokenAuth:
     """Bearer token auth via POST /api/auth."""
 

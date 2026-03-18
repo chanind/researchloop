@@ -280,6 +280,152 @@ class TestLogout:
             assert "/dashboard/login" in resp.headers["location"]
 
 
+class TestSprintCancel:
+    """POST /dashboard/sprints/{id}/cancel redirects."""
+
+    async def test_cancel_sprint_redirects(self):
+        from unittest.mock import AsyncMock, patch
+
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+
+            await queries.create_sprint(
+                orch.db,
+                "sp-cancel01",
+                "test",
+                "cancel me",
+            )
+
+            with patch.object(
+                orch.sprint_manager,
+                "cancel_sprint",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_cancel:
+                resp = client.post(
+                    "/dashboard/sprints/sp-cancel01/cancel",
+                    cookies={SESSION_COOKIE: cookie},
+                    follow_redirects=False,
+                )
+                assert resp.status_code == 303
+                loc = resp.headers["location"]
+                assert "sp-cancel01" in loc
+                mock_cancel.assert_called_once_with("sp-cancel01")
+
+    def test_cancel_unauthenticated_redirects(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            resp = client.post(
+                "/dashboard/sprints/sp-x/cancel",
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "/login" in resp.headers["location"]
+
+
+class TestSprintDelete:
+    """POST /dashboard/sprints/{id}/delete."""
+
+    async def test_delete_sprint_redirects(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+
+            await queries.create_sprint(
+                orch.db,
+                "sp-del01",
+                "test",
+                "delete me",
+            )
+
+            resp = client.post(
+                "/dashboard/sprints/sp-del01/delete",
+                cookies={SESSION_COOKIE: cookie},
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "/dashboard/sprints" in resp.headers["location"]
+
+            # Sprint should be gone.
+            sprint = await queries.get_sprint(orch.db, "sp-del01")
+            assert sprint is None
+
+    def test_delete_unauthenticated_redirects(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            resp = client.post(
+                "/dashboard/sprints/sp-x/delete",
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "/login" in resp.headers["location"]
+
+
+class TestLoopDetailPage:
+    """GET /dashboard/loops/{id}."""
+
+    async def test_loop_detail_page(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+
+            await queries.create_auto_loop(
+                orch.db,
+                "loop-detail01",
+                "test",
+                5,
+            )
+
+            resp = client.get(
+                "/dashboard/loops/loop-detail01",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert "loop-detail01" in resp.text
+            assert "test" in resp.text
+
+    def test_loop_detail_not_found(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+            resp = client.get(
+                "/dashboard/loops/loop-nope",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 404
+
+    def test_loop_detail_unauthenticated(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            resp = client.get(
+                "/dashboard/loops/loop-x",
+                follow_redirects=False,
+            )
+            assert resp.status_code == 303
+            assert "/login" in resp.headers["location"]
+
+
 class TestLoopsPage:
     def test_loops_page_returns_200(self):
         client, _, _ = _make_app_with_password("secret")
