@@ -661,10 +661,17 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         user_id: str = event.get("user", "")
         allowed = slack_cfg.allowed_user_ids if slack_cfg else []
         if allowed and user_id not in allowed:
-            logger.debug(
-                "Ignoring message from unauthorized user %s",
-                user_id,
-            )
+            if slack_cfg and slack_cfg.bot_token:
+                ch = event.get("channel", "")
+                ts = event.get("thread_ts") or event.get("ts", "")
+                n = SlackNotifier(
+                    bot_token=slack_cfg.bot_token,
+                    channel_id=ch,
+                )
+                await n._post_message(
+                    "Sorry, you're not authorized to use this bot.",
+                    thread_ts=ts,
+                )
             return JSONResponse({"ok": True})
 
         text: str = event.get("text", "")
