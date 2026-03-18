@@ -79,7 +79,7 @@ class SprintManager:
     # Create
     # ------------------------------------------------------------------
 
-    async def create_sprint(self, study_name: str, idea: str) -> Sprint:
+    async def create_sprint(self, study_name: str, idea: str | None = None) -> Sprint:
         """Create a new sprint record in the database.
 
         The sprint is created with status ``PENDING`` -- it has not yet
@@ -442,7 +442,7 @@ class SprintManager:
     async def run_sprint(
         self,
         study_name: str,
-        idea: str,
+        idea: str | None = None,
         job_options: dict[str, str] | None = None,
     ) -> Sprint:
         """Create a sprint and immediately submit it.

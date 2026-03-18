@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS studies (
 CREATE TABLE IF NOT EXISTS sprints (
     id TEXT PRIMARY KEY,  -- e.g. "sp-a3f7b2"
     study_name TEXT NOT NULL REFERENCES studies(name),
-    idea TEXT NOT NULL,
+    idea TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     job_id TEXT,  -- SLURM/SGE job ID
     directory TEXT,  -- full path on cluster

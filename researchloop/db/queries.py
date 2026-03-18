@@ -72,7 +72,7 @@ async def create_sprint(
     db: Database,
     id: str,
     study_name: str,
-    idea: str,
+    idea: str | None = None,
     directory: str | None = None,
 ) -> dict[str, Any]:
     """Insert a new sprint and return it."""
