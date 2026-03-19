@@ -133,11 +133,35 @@ class ConversationManager:
 
         return "\n".join(parts)
 
+    async def _sprint_context(self, sprint_id: str) -> str:
+        """Build detailed context for a specific sprint."""
+        sp = await self.db.fetch_one(
+            "SELECT * FROM sprints WHERE id = ?",
+            (sprint_id,),
+        )
+        if not sp:
+            return ""
+        parts = [
+            f"## This Thread is About Sprint {sprint_id}",
+            f"*Study:* {sp['study_name']}",
+            f"*Status:* {sp['status']}",
+            f"*Idea:* {sp.get('idea') or 'N/A'}",
+        ]
+        if sp.get("summary"):
+            parts.append(f"*Summary:* {sp['summary']}")
+        parts.append(
+            "The user is replying in a thread about this "
+            "sprint. When they say 'same prompt' or 'this "
+            "sprint', they mean this one."
+        )
+        return "\n".join(parts)
+
     async def handle_message(
         self,
         thread_ts: str,
         user_text: str,
         study_name: str | None = None,
+        sprint_id: str | None = None,
     ) -> str:
         """Handle a conversational message from Slack."""
         session = await self.get_session(thread_ts)
@@ -146,6 +170,18 @@ class ConversationManager:
         prompt = user_text
         if session is None:
             context = await self._build_context()
+
+            # Auto-detect sprint ID from the text or session.
+            if not sprint_id:
+                match = re.search(r"sp-[0-9a-f]{6}", user_text)
+                if match:
+                    sprint_id = match.group(0)
+
+            if sprint_id:
+                extra = await self._sprint_context(sprint_id)
+                if extra:
+                    context += f"\n\n{extra}"
+
             prompt = f"{context}\n\nUser: {user_text}"
 
         # Run Claude with restricted tools — web only.

@@ -833,6 +833,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 bot_token=slack_cfg.bot_token,
                 channel_id=channel,
             )
+
             try:
                 response_text = await cm.handle_message(
                     thread_ts=thread_ts,
