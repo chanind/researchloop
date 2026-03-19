@@ -78,12 +78,12 @@ class SlackNotifier(BaseNotifier):
             with open(filepath, "rb") as f:
                 async with httpx.AsyncClient() as client:
                     resp = await client.post(
-                        f"{_SLACK_API}/files.uploadV2",
+                        f"{_SLACK_API}/files.upload",
                         headers={
                             "Authorization": (f"Bearer {self.bot_token}"),
                         },
                         data={
-                            "channel_id": ch,
+                            "channels": ch,
                             "filename": filename,
                             "initial_comment": initial_comment,
                         },
