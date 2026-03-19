@@ -11,8 +11,10 @@ from pathlib import Path
 
 import pytest
 
+from researchloop.clusters.ssh import SSHManager
 from researchloop.core.config import ClusterConfig, Config, StudyConfig
 from researchloop.db.database import Database
+from researchloop.sprints.manager import SprintManager
 
 # Paths.
 _DOCKER_DIR = Path(__file__).resolve().parent.parent / "docker" / "slurm"
@@ -256,3 +258,31 @@ async def integration_db_with_study(
         sprints_dir="/tmp/researchloop/integration-study",
     )
     return integration_db
+
+
+@pytest.fixture
+async def sprint_manager(
+    integration_db_with_study: Database,
+    integration_config: Config,
+) -> AsyncIterator[SprintManager]:
+    """SprintManager wired to the Docker SLURM container."""
+    from researchloop.schedulers.slurm import SlurmScheduler
+    from researchloop.sprints.manager import SprintManager
+    from researchloop.studies.manager import StudyManager
+
+    ssh_mgr = SSHManager()
+    cluster = integration_config.clusters[0]
+    scheduler = SlurmScheduler()
+    study_mgr = StudyManager(integration_db_with_study, integration_config)
+    mgr = SprintManager(
+        db=integration_db_with_study,
+        config=integration_config,
+        ssh_manager=ssh_mgr,
+        schedulers={
+            cluster.name: scheduler,
+            cluster.scheduler_type: scheduler,
+        },
+        study_manager=study_mgr,
+    )
+    yield mgr
+    await ssh_mgr.close_all()
