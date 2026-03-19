@@ -22,11 +22,8 @@ def _md_to_slack(text: str) -> str:
     lines = text.split("\n")
     result = []
     for line in lines:
-        # Headers → bold
         line = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", line)
-        # **bold** → *bold*
         line = re.sub(r"\*\*(.+?)\*\*", r"*\1*", line)
-        # [text](url) → <url|text>
         line = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", line)
         result.append(line)
     return "\n".join(result)
@@ -35,8 +32,8 @@ def _md_to_slack(text: str) -> str:
 class ConversationManager:
     """Maps Slack threads to Claude CLI sessions.
 
-    Provides free-form conversation with Claude, plus the ability
-    to execute sprint/loop commands on behalf of the user.
+    Stores message history locally so we don't need to
+    query Slack's API for thread context.
     """
 
     def __init__(
@@ -46,6 +43,10 @@ class ConversationManager:
     ) -> None:
         self.db = db
         self.sprint_manager = sprint_manager
+
+    # ----------------------------------------------------------
+    # Session CRUD
+    # ----------------------------------------------------------
 
     async def get_session(self, thread_ts: str) -> dict | None:
         return await self.db.fetch_one(
@@ -59,12 +60,20 @@ class ConversationManager:
         study_name: str | None = None,
         sprint_id: str | None = None,
         session_id: str | None = None,
+        messages: list[dict] | None = None,
     ) -> None:
         await self.db.execute(
             "INSERT INTO slack_sessions"
-            " (thread_ts, sprint_id, session_id, study_name)"
-            " VALUES (?, ?, ?, ?)",
-            (thread_ts, sprint_id, session_id, study_name),
+            " (thread_ts, sprint_id, session_id,"
+            " study_name, messages_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                thread_ts,
+                sprint_id,
+                session_id,
+                study_name,
+                json.dumps(messages or []),
+            ),
         )
 
     async def update_session_id(self, thread_ts: str, session_id: str) -> None:
@@ -73,8 +82,52 @@ class ConversationManager:
             (session_id, thread_ts),
         )
 
+    async def _append_message(
+        self,
+        thread_ts: str,
+        role: str,
+        text: str,
+    ) -> None:
+        """Append a message to the thread's stored history."""
+        session = await self.get_session(thread_ts)
+        if session is None:
+            return
+        msgs = []
+        raw = session.get("messages_json")
+        if raw:
+            try:
+                msgs = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        msgs.append({"role": role, "text": text})
+        await self.db.execute(
+            "UPDATE slack_sessions SET messages_json = ? WHERE thread_ts = ?",
+            (json.dumps(msgs), thread_ts),
+        )
+
+    async def store_bot_message(self, thread_ts: str, text: str) -> None:
+        """Store a bot message (e.g. notification) for a thread."""
+        session = await self.get_session(thread_ts)
+        if session is None:
+            # Create a session for this thread.
+            # Extract sprint ID from the text if present.
+            sid = None
+            match = re.search(r"sp-[0-9a-f]{6}", text)
+            if match:
+                sid = match.group(0)
+            await self.create_session(
+                thread_ts,
+                sprint_id=sid,
+                messages=[{"role": "bot", "text": text}],
+            )
+        else:
+            await self._append_message(thread_ts, "bot", text)
+
+    # ----------------------------------------------------------
+    # Context building
+    # ----------------------------------------------------------
+
     async def _build_context(self) -> str:
-        """Build context about studies and recent sprints."""
         parts = [
             "You are the ResearchLoop assistant, helping "
             "researchers plan and manage automated research "
@@ -89,11 +142,10 @@ class ConversationManager:
             "- Discuss research ideas and help plan sprints",
             "- Review results from completed sprints",
             "- Suggest what to investigate next",
-            "- Look up papers and references (you have web access)",
-            "- Execute actions by including action tags in your response",
+            "- Look up papers and references (web access)",
+            "- Execute actions via [ACTION: ...] tags",
             "",
             "## Available Actions",
-            "To execute an action, include it in your response like:",
             '[ACTION: sprint_run {"study": "name", "idea": "..."}]',
             '[ACTION: sprint_list {"study": "name"}]',
             '[ACTION: sprint_show {"id": "sp-abc123"}]',
@@ -114,7 +166,7 @@ class ConversationManager:
             parts.append("## Available Studies")
             for s in studies:
                 desc = s.get("description") or ""
-                parts.append(f"- **{s['name']}**: {desc}")
+                parts.append(f"- *{s['name']}*: {desc}")
             parts.append("")
 
         sprints = await self.db.fetch_all(
@@ -134,7 +186,6 @@ class ConversationManager:
         return "\n".join(parts)
 
     async def _sprint_context(self, sprint_id: str) -> str:
-        """Build detailed context for a specific sprint."""
         sp = await self.db.fetch_one(
             "SELECT * FROM sprints WHERE id = ?",
             (sprint_id,),
@@ -150,45 +201,14 @@ class ConversationManager:
         if sp.get("summary"):
             parts.append(f"*Summary:* {sp['summary']}")
         parts.append(
-            "The user is replying in a thread about this "
-            "sprint. When they say 'same prompt' or 'this "
-            "sprint', they mean this one."
+            "When the user says 'same prompt', 'this sprint',"
+            " or 'again', they mean this one."
         )
         return "\n".join(parts)
 
-    async def _fetch_thread_history(
-        self,
-        channel: str,
-        thread_ts: str,
-        bot_token: str,
-    ) -> str:
-        """Fetch prior messages in a Slack thread."""
-        import httpx
-
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    "https://slack.com/api/conversations.replies",
-                    headers={"Authorization": f"Bearer {bot_token}"},
-                    params={
-                        "channel": channel,
-                        "ts": thread_ts,
-                        "limit": 20,
-                    },
-                    timeout=10.0,
-                )
-                data = resp.json()
-                if not data.get("ok"):
-                    return ""
-                msgs = data.get("messages", [])
-                lines = []
-                for m in msgs:
-                    who = "Bot" if m.get("bot_id") else "User"
-                    lines.append(f"{who}: {m.get('text', '')}")
-                return "\n".join(lines)
-        except Exception:
-            logger.debug("Thread fetch failed", exc_info=True)
-            return ""
+    # ----------------------------------------------------------
+    # Message handling
+    # ----------------------------------------------------------
 
     async def handle_message(
         self,
@@ -207,21 +227,7 @@ class ConversationManager:
         if session is None:
             context = await self._build_context()
 
-            # Fetch thread history so Claude sees the full conversation.
-            if channel and bot_token:
-                history = await self._fetch_thread_history(
-                    channel, thread_ts, bot_token
-                )
-                if history:
-                    context += "\n\n## Thread History\n" + history
-
-            # Auto-detect sprint ID from thread or text.
-            if not sprint_id and channel and bot_token:
-                # Check thread history for sprint IDs.
-                hist = history if "history" in dir() else ""
-                match = re.search(r"sp-[0-9a-f]{6}", hist)
-                if match:
-                    sprint_id = match.group(0)
+            # Auto-detect sprint ID from text.
             if not sprint_id:
                 match = re.search(r"sp-[0-9a-f]{6}", user_text)
                 if match:
@@ -233,6 +239,31 @@ class ConversationManager:
                     context += f"\n\n{extra}"
 
             prompt = f"{context}\n\nUser: {user_text}"
+        else:
+            # Existing session — check stored sprint context.
+            if not sprint_id:
+                sprint_id = session.get("sprint_id")
+
+            # Include stored thread history in the prompt
+            # if this is the first Claude call (no resume_id).
+            if not resume_id:
+                raw = session.get("messages_json")
+                if raw:
+                    try:
+                        msgs = json.loads(raw)
+                        if msgs:
+                            history = "\n".join(
+                                f"{m['role'].title()}: {m['text'][:500]}" for m in msgs
+                            )
+                            context = await self._build_context()
+                            if sprint_id:
+                                extra = await self._sprint_context(sprint_id)
+                                if extra:
+                                    context += f"\n\n{extra}"
+                            context += "\n\n## Prior Messages\n" + history
+                            prompt = f"{context}\n\nUser: {user_text}"
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
         # Run Claude with restricted tools — web only.
         cmd = [
@@ -258,7 +289,7 @@ class ConversationManager:
         except asyncio.TimeoutError:
             return "Sorry, the request timed out."
         except FileNotFoundError:
-            return "Claude CLI is not available on this server."
+            return "Claude CLI is not available."
 
         if proc.returncode != 0:
             logger.error(
@@ -289,10 +320,18 @@ class ConversationManager:
             await self.create_session(
                 thread_ts,
                 study_name=study_name,
+                sprint_id=sprint_id,
                 session_id=new_session_id,
+                messages=[
+                    {"role": "user", "text": user_text},
+                    {"role": "bot", "text": response_text[:500]},
+                ],
             )
-        elif new_session_id:
-            await self.update_session_id(thread_ts, new_session_id)
+        else:
+            if new_session_id:
+                await self.update_session_id(thread_ts, new_session_id)
+            await self._append_message(thread_ts, "user", user_text)
+            await self._append_message(thread_ts, "bot", response_text[:500])
 
         # Execute any actions Claude requested.
         action_results = await self._execute_actions(response_text)
@@ -302,23 +341,24 @@ class ConversationManager:
 
         return _md_to_slack(response_text)
 
+    # ----------------------------------------------------------
+    # Action execution
+    # ----------------------------------------------------------
+
     async def _execute_actions(self, text: str) -> list[str]:
-        """Parse and execute [ACTION: ...] tags."""
         results: list[str] = []
         for match in _ACTION_RE.finditer(text):
             action = match.group(1)
             try:
                 params: dict[str, Any] = json.loads(match.group(2))
             except json.JSONDecodeError:
-                results.append(f":warning: Failed to parse action: {action}")
+                results.append(f":warning: Failed to parse: {action}")
                 continue
-
             result = await self._run_action(action, params)
             results.append(result)
         return results
 
     async def _run_action(self, action: str, params: dict[str, Any]) -> str:
-        """Execute a single action."""
         if self.sprint_manager is None:
             return ":warning: Sprint manager not available."
 
@@ -329,7 +369,7 @@ class ConversationManager:
                 if not study or not idea:
                     return ":warning: sprint_run needs 'study' and 'idea'"
                 sprint = await self.sprint_manager.run_sprint(study, idea)
-                return f":rocket: Sprint *{sprint.id}* submitted for study *{study}*"
+                return f":rocket: Sprint *{sprint.id}* submitted for *{study}*"
 
             if action == "sprint_list":
                 study = params.get("study")
@@ -392,8 +432,8 @@ class ConversationManager:
                     lines.append("*Recent sprints:*")
                     for s in sprints:
                         lines.append(
-                            f"  • {s['id']} [{s['status']}] "
-                            f"{(s.get('idea') or '')[:40]}"
+                            f"  • {s['id']} [{s['status']}]"
+                            f" {(s.get('idea') or '')[:40]}"
                         )
                 return "\n".join(lines)
 
@@ -404,19 +444,18 @@ class ConversationManager:
 
                 study = params.get("study", "")
                 count = params.get("count", 5)
-                context = params.get("context", "")
+                ctx = params.get("context", "")
                 if not study:
                     return ":warning: loop_start needs 'study'"
-                # Access the auto_loop controller via sprint_manager's db/config.
                 ctrl = AutoLoopController(
                     db=self.sprint_manager.db,
                     sprint_manager=self.sprint_manager,
                     config=self.sprint_manager.config,
                 )
-                loop_id = await ctrl.start(study, count, context=context)
+                loop_id = await ctrl.start(study, count, context=ctx)
                 return (
-                    f":repeat: Auto-loop *{loop_id}* started "
-                    f"for *{study}* ({count} sprints)"
+                    f":repeat: Auto-loop *{loop_id}* "
+                    f"started for *{study}* ({count} sprints)"
                 )
 
             return f":warning: Unknown action: {action}"

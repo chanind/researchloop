@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS slack_sessions (
     sprint_id TEXT,
     session_id TEXT,  -- claude --resume session ID
     study_name TEXT,
+    messages_json TEXT,  -- JSON array of {role, text}
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (sprint_id) REFERENCES sprints(id)
 );
@@ -117,5 +118,6 @@ async def run_migrations(db: Database) -> None:
     await _add_column_if_missing(db, "sprints", "webhook_token", "TEXT")
     await _add_column_if_missing(db, "sprints", "loop_id", "TEXT")
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
+    await _add_column_if_missing(db, "slack_sessions", "messages_json", "TEXT")
 
     await db._conn.commit()

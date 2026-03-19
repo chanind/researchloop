@@ -113,6 +113,13 @@ class Orchestrator:
             self.db, sprint_manager=self.sprint_manager
         )
 
+        # Wire conversation manager to Slack notifier
+        # so notifications store thread context.
+        if self.config.slack and self.config.slack.bot_token:
+            for n in self.notification_router._notifiers:
+                if isinstance(n, SlackNotifier):
+                    n._cm = self.conversation_manager
+
         # 7. Auto-loop controller
         self.auto_loop = AutoLoopController(
             db=self.db,
