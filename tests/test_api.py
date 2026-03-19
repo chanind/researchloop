@@ -198,6 +198,121 @@ class TestWebhookHeartbeat:
             sprint = await queries.get_sprint(orch.db, "sp-001")
             assert sprint["status"] == "research"
 
+    async def test_heartbeat_log_tail_updates_error(self):
+        """Heartbeat with log_tail stores it in the error field."""
+        client, orch = _make_app()
+        with client:
+            row = await queries.create_sprint(orch.db, "sp-001", "test", "idea")
+            token = row["webhook_token"]
+            resp = client.post(
+                "/api/webhook/heartbeat",
+                json={
+                    "sprint_id": "sp-001",
+                    "phase": "research",
+                    "log_tail": "Running step 1\nRunning step 2",
+                },
+                headers={"x-webhook-token": token},
+            )
+            assert resp.status_code == 200
+            sprint = await queries.get_sprint(orch.db, "sp-001")
+            assert sprint["error"] is not None
+            assert "--- Tool log ---" in sprint["error"]
+            assert "Running step 1" in sprint["error"]
+            assert "Running step 2" in sprint["error"]
+
+    async def test_heartbeat_progress_updates_error(self):
+        """Heartbeat with progress stores it first in the error field."""
+        client, orch = _make_app()
+        with client:
+            row = await queries.create_sprint(orch.db, "sp-001", "test", "idea")
+            token = row["webhook_token"]
+            resp = client.post(
+                "/api/webhook/heartbeat",
+                json={
+                    "sprint_id": "sp-001",
+                    "phase": "research",
+                    "progress": "## Plan\n1. Set up baseline",
+                },
+                headers={"x-webhook-token": token},
+            )
+            assert resp.status_code == 200
+            sprint = await queries.get_sprint(orch.db, "sp-001")
+            assert sprint["error"] is not None
+            assert sprint["error"].startswith("## Plan")
+            assert "Set up baseline" in sprint["error"]
+
+    async def test_heartbeat_all_fields_combined(self):
+        """Heartbeat with progress + log_tail + recent_files combines them."""
+        client, orch = _make_app()
+        with client:
+            row = await queries.create_sprint(orch.db, "sp-001", "test", "idea")
+            token = row["webhook_token"]
+            resp = client.post(
+                "/api/webhook/heartbeat",
+                json={
+                    "sprint_id": "sp-001",
+                    "phase": "research",
+                    "progress": "## Progress\nDoing great",
+                    "log_tail": "tool call: read file.py",
+                    "recent_files": "modified: src/main.py",
+                },
+                headers={"x-webhook-token": token},
+            )
+            assert resp.status_code == 200
+            sprint = await queries.get_sprint(orch.db, "sp-001")
+            error = sprint["error"]
+            assert error is not None
+            # Progress appears first
+            assert error.startswith("## Progress")
+            # Then tool log
+            assert "--- Tool log ---" in error
+            assert "tool call: read file.py" in error
+            # Then recent files
+            assert "--- Recent file activity ---" in error
+            assert "modified: src/main.py" in error
+            # Verify ordering: progress before tool log before files
+            progress_pos = error.index("## Progress")
+            log_pos = error.index("--- Tool log ---")
+            files_pos = error.index("--- Recent file activity ---")
+            assert progress_pos < log_pos < files_pos
+
+    async def test_heartbeat_preserves_report_in_metadata(self):
+        """Heartbeat preserves existing report and has_pdf in metadata_json."""
+        import json
+
+        client, orch = _make_app()
+        with client:
+            row = await queries.create_sprint(orch.db, "sp-001", "test", "idea")
+            token = row["webhook_token"]
+
+            # Pre-populate metadata_json with report and has_pdf.
+            existing_meta = {
+                "report": "# Sprint Report\nFindings here.",
+                "has_pdf": True,
+            }
+            await queries.update_sprint(
+                orch.db, "sp-001", metadata_json=json.dumps(existing_meta)
+            )
+
+            # Send heartbeat -- should preserve report and has_pdf.
+            resp = client.post(
+                "/api/webhook/heartbeat",
+                json={
+                    "sprint_id": "sp-001",
+                    "phase": "research",
+                    "log_tail": "some log output",
+                },
+                headers={"x-webhook-token": token},
+            )
+            assert resp.status_code == 200
+
+            sprint = await queries.get_sprint(orch.db, "sp-001")
+            meta = json.loads(sprint["metadata_json"])
+            assert meta["report"] == "# Sprint Report\nFindings here."
+            assert meta["has_pdf"] is True
+            assert "last_heartbeat" in meta
+            assert meta["phase"] == "research"
+
 
 class TestArtifactUpload:
     async def test_upload(self):

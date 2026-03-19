@@ -61,6 +61,16 @@ class TestRenderTemplate:
         assert "Study about transformers" in output
         assert "/tmp/sprint" in output
 
+    def test_research_template_contains_progress_md(self):
+        """Research template instructs the runner to maintain progress.md."""
+        output = render_template(
+            "research_sprint.md.j2",
+            study_context="Study context",
+            idea="test idea",
+            sprint_dir="/tmp/sprint",
+        )
+        assert "progress.md" in output
+
     def test_red_team_template(self):
         output = render_template(
             "red_team.md.j2",
