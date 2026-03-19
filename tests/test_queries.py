@@ -105,6 +105,45 @@ class TestSprintQueries:
         assert active[0]["id"] == "sp-001"
 
 
+class TestDeleteSprint:
+    async def test_delete_removes_sprint(self, db_with_study):
+        await queries.create_sprint(db_with_study, "sp-del", "test-study", "idea")
+        await queries.delete_sprint(db_with_study, "sp-del")
+        assert await queries.get_sprint(db_with_study, "sp-del") is None
+
+    async def test_delete_removes_related_artifacts_and_events(self, db_with_study):
+        await queries.create_sprint(db_with_study, "sp-del", "test-study", "idea")
+        await queries.create_artifact(db_with_study, "sp-del", "f.pdf", "/f.pdf")
+        await queries.create_event(db_with_study, "sp-del", "test_event")
+        await queries.delete_sprint(db_with_study, "sp-del")
+        assert await queries.list_artifacts(db_with_study, "sp-del") == []
+        assert await queries.list_events(db_with_study, sprint_id="sp-del") == []
+
+    async def test_delete_removes_related_slack_sessions(self, db_with_study):
+        """Ensure delete_sprint cleans up slack_sessions FK references."""
+        await queries.create_sprint(db_with_study, "sp-del", "test-study", "idea")
+        # Insert a slack_session referencing this sprint.
+        await db_with_study.execute(
+            "INSERT INTO slack_sessions (thread_ts, sprint_id, study_name) "
+            "VALUES (?, ?, ?)",
+            ("1234.5678", "sp-del", "test-study"),
+        )
+        # Verify it exists.
+        row = await db_with_study.fetch_one(
+            "SELECT * FROM slack_sessions WHERE sprint_id = ?", ("sp-del",)
+        )
+        assert row is not None
+
+        await queries.delete_sprint(db_with_study, "sp-del")
+
+        # Sprint and session should both be gone.
+        assert await queries.get_sprint(db_with_study, "sp-del") is None
+        row = await db_with_study.fetch_one(
+            "SELECT * FROM slack_sessions WHERE sprint_id = ?", ("sp-del",)
+        )
+        assert row is None
+
+
 class TestAutoLoopQueries:
     async def test_create_and_get(self, db_with_study):
         loop = await queries.create_auto_loop(
