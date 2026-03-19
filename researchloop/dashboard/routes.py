@@ -527,13 +527,9 @@ def add_dashboard_routes(
                         display_log = sprint_log or log_text
                         if display_log:
                             if parts:
-                                parts.append(
-                                    f"--- Tool log ---\n{display_log}"
-                                )
+                                parts.append(f"--- Tool log ---\n{display_log}")
                             else:
-                                parts.append(
-                                    f"[{real_status}] Log:\n{display_log}"
-                                )
+                                parts.append(f"[{real_status}] Log:\n{display_log}")
                         if parts:
                             update_kw["error"] = "\n\n".join(parts)
 

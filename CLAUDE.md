@@ -88,6 +88,7 @@ SQLite with 6 tables: `studies`, `sprints`, `auto_loops`, `artifacts`, `slack_se
 - Slack integration: POST /api/slack/events handles URL verification, signature checking, `sprint run` commands, and conversational messages via ConversationManager
 - Dashboard routes check auth via signed session cookie when password_hash is configured
 - Tests use in-memory SQLite (`:memory:`) and mock SSH via AsyncMock
+- Always ensure the codebase passes type checking with pyright and ruff check before committing. Fix any errors that exist.
 
 ## Testing
 

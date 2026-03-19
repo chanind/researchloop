@@ -22,9 +22,7 @@ pytestmark = pytest.mark.integration
 async def _wait_job_done(ssh, job_id: str, timeout: int = 30) -> str:  # type: ignore[no-untyped-def]
     """Poll scontrol until the job reaches a terminal state."""
     for _ in range(timeout):
-        stdout, _, _ = await ssh.run(
-            f"scontrol show job {job_id} -o 2>/dev/null"
-        )
+        stdout, _, _ = await ssh.run(f"scontrol show job {job_id} -o 2>/dev/null")
         match = re.search(r"JobState=(\S+)", stdout)
         if match:
             state = match.group(1)
@@ -60,9 +58,7 @@ class TestAutoLoopIntegration:
         assert loop_id.startswith("loop-")
 
         # Verify loop record.
-        loop = await queries.get_auto_loop(
-            integration_db_with_study, loop_id
-        )
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
         assert loop is not None
         assert loop["total_count"] == 2
         assert loop["status"] == "running"
@@ -70,9 +66,7 @@ class TestAutoLoopIntegration:
 
         # Verify sprint has loop_id set.
         sprint_id = loop["current_sprint_id"]
-        sprint = await queries.get_sprint(
-            integration_db_with_study, sprint_id
-        )
+        sprint = await queries.get_sprint(integration_db_with_study, sprint_id)
         assert sprint is not None
         assert sprint["loop_id"] == loop_id
         assert sprint["idea"] is None  # auto-generated on cluster
@@ -93,9 +87,7 @@ class TestAutoLoopIntegration:
         )
 
         loop_id = await ctrl.start("integration-study", count=2)
-        loop = await queries.get_auto_loop(
-            integration_db_with_study, loop_id
-        )
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
         sprint = await queries.get_sprint(
             integration_db_with_study,
             loop["current_sprint_id"],
@@ -115,9 +107,7 @@ class TestAutoLoopIntegration:
             )
             base = integration_config.studies[0].sprints_dir
             sprint_dir = sprint["directory"]
-            script_out, _, rc = await conn.run(
-                f"cat {base}/{sprint_dir}/run_sprint.sh"
-            )
+            script_out, _, rc = await conn.run(f"cat {base}/{sprint_dir}/run_sprint.sh")
             assert rc == 0
 
             # The script should contain the idea generator
@@ -140,23 +130,17 @@ class TestAutoLoopIntegration:
         )
 
         loop_id = await ctrl.start("integration-study", count=3)
-        loop = await queries.get_auto_loop(
-            integration_db_with_study, loop_id
-        )
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
         sprint_id = loop["current_sprint_id"]
 
         await ctrl.stop(loop_id)
 
         # Loop should be stopped.
-        loop = await queries.get_auto_loop(
-            integration_db_with_study, loop_id
-        )
+        loop = await queries.get_auto_loop(integration_db_with_study, loop_id)
         assert loop["status"] == "stopped"
 
         # Sprint should be cancelled.
-        sprint = await queries.get_sprint(
-            integration_db_with_study, sprint_id
-        )
+        sprint = await queries.get_sprint(integration_db_with_study, sprint_id)
         assert sprint["status"] == "cancelled"
 
 
@@ -219,9 +203,7 @@ class TestJobMonitorIntegration:
             await monitor.poll_active_jobs()
 
             # Sprint should now be marked completed.
-            row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
             assert row is not None
             # The monitor uses squeue which returns empty for
             # completed jobs, then sacct which may not be available.
@@ -283,9 +265,7 @@ class TestJobMonitorIntegration:
                 },
                 config=integration_config,
             )
-            sprint_row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            sprint_row = await queries.get_sprint(integration_db_with_study, sprint.id)
             result = await monitor.check_job(sprint_row)
             # Should still be running (mock claude takes ~1s per step
             # and there are multiple steps).
@@ -347,16 +327,12 @@ class TestStatusRefreshIntegration:
                     "COMPLETED",
                     "FAILED",
                 ):
-                    seen_statuses.add(
-                        match.group(1).lower()
-                    )
+                    seen_statuses.add(match.group(1).lower())
                     break
                 await asyncio.sleep(1)
 
             # We should have seen at least one non-unknown status.
-            assert len(seen_statuses - {"unknown"}) > 0, (
-                f"Only saw: {seen_statuses}"
-            )
+            assert len(seen_statuses - {"unknown"}) > 0, f"Only saw: {seen_statuses}"
             # The job should have eventually completed.
             assert "completed" in seen_statuses or "COMPLETED" in {
                 s.upper() for s in seen_statuses

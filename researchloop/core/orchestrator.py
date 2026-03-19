@@ -469,10 +469,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             if log_tail:
                 parts.append(f"--- Tool log ---\n{log_tail.strip()}")
             if recent_files:
-                parts.append(
-                    f"--- Recent file activity ---"
-                    f"\n{recent_files.strip()}"
-                )
+                parts.append(f"--- Recent file activity ---\n{recent_files.strip()}")
             update_fields["error"] = "\n\n".join(parts)
 
         await queries.update_sprint(orchestrator.db, sprint_id, **update_fields)

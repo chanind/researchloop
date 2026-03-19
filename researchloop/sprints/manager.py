@@ -663,9 +663,7 @@ class SprintManager:
                 return stdout.strip()
             return None
         except Exception:
-            logger.debug(
-                "Idea fetch failed for %s", sprint.get("id"), exc_info=True
-            )
+            logger.debug("Idea fetch failed for %s", sprint.get("id"), exc_info=True)
             return None
 
     async def _fetch_pdf(self, sprint: dict) -> str | None:

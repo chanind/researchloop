@@ -33,14 +33,10 @@ def _make_controller(
     submit_sprint_return="job-123",
 ) -> AutoLoopController:
     sprint_mgr = AsyncMock()
-    sprint_mgr.create_sprint.return_value = (
-        create_sprint_return or _make_sprint()
-    )
+    sprint_mgr.create_sprint.return_value = create_sprint_return or _make_sprint()
     sprint_mgr.submit_sprint.return_value = submit_sprint_return
     # Keep run_sprint for tests that don't need the split
-    sprint_mgr.run_sprint.return_value = (
-        create_sprint_return or _make_sprint()
-    )
+    sprint_mgr.run_sprint.return_value = create_sprint_return or _make_sprint()
     return AutoLoopController(
         db=db,
         sprint_manager=sprint_mgr,
@@ -159,9 +155,7 @@ class TestOnSprintCompleteStartsNext:
         await ctrl.on_sprint_complete("sp-done")
 
         # create_sprint was called with None idea.
-        ctrl.sprint_manager.create_sprint.assert_called_once_with(
-            "test-study", None
-        )
+        ctrl.sprint_manager.create_sprint.assert_called_once_with("test-study", None)
         # submit_sprint was called after loop_id was set.
         ctrl.sprint_manager.submit_sprint.assert_called_once_with("sp-next")
 

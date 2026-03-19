@@ -43,9 +43,7 @@ async def _wait_job_done(ssh, job_id: str, timeout: int = 30) -> str:
     scontrol which keeps completed jobs for MinJobAge seconds.
     """
     for _ in range(timeout):
-        stdout, _, _ = await ssh.run(
-            f"scontrol show job {job_id} -o 2>/dev/null"
-        )
+        stdout, _, _ = await ssh.run(f"scontrol show job {job_id} -o 2>/dev/null")
         match = re.search(r"JobState=(\S+)", stdout)
         if match:
             state = match.group(1)
@@ -106,10 +104,7 @@ class TestSlurmSubmitAndStatus:
         """squeue shows a running job's status correctly."""
         await ssh.run("mkdir -p /tmp/test-squeue")
         await ssh.run(
-            "cat > /tmp/test-squeue/slow.sh << 'SCRIPT'\n"
-            "#!/bin/bash\n"
-            "sleep 60\n"
-            "SCRIPT"
+            "cat > /tmp/test-squeue/slow.sh << 'SCRIPT'\n#!/bin/bash\nsleep 60\nSCRIPT"
         )
         await ssh.run("chmod +x /tmp/test-squeue/slow.sh")
 
@@ -137,10 +132,7 @@ class TestSlurmSubmitAndStatus:
         """Cancel a running job and verify it's killed."""
         await ssh.run("mkdir -p /tmp/test-cancel")
         await ssh.run(
-            "cat > /tmp/test-cancel/slow.sh << 'SCRIPT'\n"
-            "#!/bin/bash\n"
-            "sleep 300\n"
-            "SCRIPT"
+            "cat > /tmp/test-cancel/slow.sh << 'SCRIPT'\n#!/bin/bash\nsleep 300\nSCRIPT"
         )
         await ssh.run("chmod +x /tmp/test-cancel/slow.sh")
 
@@ -177,9 +169,7 @@ class TestSlurmSubmitAndStatus:
 
     async def test_mock_claude_runs(self, ssh):
         """Verify the mock claude CLI is installed and works."""
-        stdout, _, rc = await ssh.run(
-            "claude -p 'test' --output-format stream-json"
-        )
+        stdout, _, rc = await ssh.run("claude -p 'test' --output-format stream-json")
         assert rc == 0
         assert '"type"' in stdout
         assert '"result"' in stdout

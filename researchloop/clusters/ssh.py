@@ -37,6 +37,7 @@ class SSHConnection:
             "port": self.port,
             "username": self.user,
             "client_keys": [self.key_path],
+            "agent_path": None,  # Don't use SSH agent; we have explicit keys.
         }
         if self.known_hosts is not None:
             connect_kwargs["known_hosts"] = self.known_hosts

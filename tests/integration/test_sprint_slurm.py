@@ -24,9 +24,7 @@ pytestmark = pytest.mark.integration
 async def _wait_job_done(ssh, job_id: str, timeout: int = 30) -> str:  # type: ignore[no-untyped-def]
     """Poll scontrol until the job reaches a terminal state."""
     for _ in range(timeout):
-        stdout, _, _ = await ssh.run(
-            f"scontrol show job {job_id} -o 2>/dev/null"
-        )
+        stdout, _, _ = await ssh.run(f"scontrol show job {job_id} -o 2>/dev/null")
         match = re.search(r"JobState=(\S+)", stdout)
         if match:
             state = match.group(1)
@@ -60,9 +58,7 @@ class TestSprintSubmission:
         try:
             cluster = integration_config.clusters[0]
             scheduler = SlurmScheduler()
-            study_mgr = StudyManager(
-                integration_db_with_study, integration_config
-            )
+            study_mgr = StudyManager(integration_db_with_study, integration_config)
             sprint_mgr = SprintManager(
                 db=integration_db_with_study,
                 config=integration_config,
@@ -74,17 +70,13 @@ class TestSprintSubmission:
                 study_manager=study_mgr,
             )
 
-            sprint = await sprint_mgr.create_sprint(
-                "integration-study", "count to ten"
-            )
+            sprint = await sprint_mgr.create_sprint("integration-study", "count to ten")
             job_id = await sprint_mgr.submit_sprint(sprint.id)
 
             assert job_id.isdigit()
 
             # Verify DB was updated.
-            row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
             assert row is not None
             assert row["job_id"] == job_id
             assert row["status"] == "submitted"
@@ -100,9 +92,7 @@ class TestSprintSubmission:
             )
             sprint_dir = row["directory"]
             base = integration_config.studies[0].sprints_dir
-            _, _, rc = await conn.run(
-                f"test -d {base}/{sprint_dir}/.researchloop"
-            )
+            _, _, rc = await conn.run(f"test -d {base}/{sprint_dir}/.researchloop")
             assert rc == 0, "Sprint directory not created on cluster"
 
             # Verify job script was uploaded (prompts are embedded
@@ -133,9 +123,7 @@ class TestFullLifecycle:
         try:
             cluster = integration_config.clusters[0]
             scheduler = SlurmScheduler()
-            study_mgr = StudyManager(
-                integration_db_with_study, integration_config
-            )
+            study_mgr = StudyManager(integration_db_with_study, integration_config)
             sprint_mgr = SprintManager(
                 db=integration_db_with_study,
                 config=integration_config,
@@ -166,24 +154,18 @@ class TestFullLifecycle:
             assert state == "COMPLETED", f"Job did not complete: {state}"
 
             # Verify the mock claude produced output files.
-            row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
             assert row is not None
             sprint_dir = row["directory"]
             base = integration_config.studies[0].sprints_dir
 
             # Check sprint_log.txt was created with step entries.
-            log_out, _, rc = await conn.run(
-                f"cat {base}/{sprint_dir}/sprint_log.txt"
-            )
+            log_out, _, rc = await conn.run(f"cat {base}/{sprint_dir}/sprint_log.txt")
             assert rc == 0, "sprint_log.txt not found"
             assert ">>> Starting step: research" in log_out
 
             # Check summary.txt was created by mock claude.
-            summary_out, _, rc = await conn.run(
-                f"cat {base}/{sprint_dir}/summary.txt"
-            )
+            summary_out, _, rc = await conn.run(f"cat {base}/{sprint_dir}/summary.txt")
             assert rc == 0, "summary.txt not found"
             assert len(summary_out.strip()) > 0
         finally:
@@ -254,17 +236,13 @@ class TestFullLifecycle:
                 except OSError:
                     await asyncio.sleep(0.5)
 
-            sprint = await sprint_mgr.create_sprint(
-                "integration-study", "webhook test"
-            )
+            sprint = await sprint_mgr.create_sprint("integration-study", "webhook test")
             job_id = await sprint_mgr.submit_sprint(sprint.id)
 
             # Poll DB for webhook-driven status update.
             final_status = None
             for _ in range(60):
-                row = await queries.get_sprint(
-                    integration_db_with_study, sprint.id
-                )
+                row = await queries.get_sprint(integration_db_with_study, sprint.id)
                 if row and row["status"] in (
                     "completed",
                     "failed",
@@ -275,13 +253,10 @@ class TestFullLifecycle:
                 await asyncio.sleep(1)
 
             assert final_status == "completed", (
-                f"Webhook not received. Status: {final_status}. "
-                f"Job ID: {job_id}"
+                f"Webhook not received. Status: {final_status}. Job ID: {job_id}"
             )
 
-            row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
             assert row is not None
             assert row["completed_at"] is not None
         finally:
@@ -299,9 +274,7 @@ class TestFullLifecycle:
         try:
             cluster = integration_config.clusters[0]
             scheduler = SlurmScheduler()
-            study_mgr = StudyManager(
-                integration_db_with_study, integration_config
-            )
+            study_mgr = StudyManager(integration_db_with_study, integration_config)
             sprint_mgr = SprintManager(
                 db=integration_db_with_study,
                 config=integration_config,
@@ -313,9 +286,7 @@ class TestFullLifecycle:
                 study_manager=study_mgr,
             )
 
-            sprint = await sprint_mgr.create_sprint(
-                "integration-study", "cancel test"
-            )
+            sprint = await sprint_mgr.create_sprint("integration-study", "cancel test")
             await sprint_mgr.submit_sprint(sprint.id)
 
             # Cancel via sprint manager.
@@ -323,9 +294,7 @@ class TestFullLifecycle:
             assert success is True
 
             # Verify DB reflects cancellation.
-            row = await queries.get_sprint(
-                integration_db_with_study, sprint.id
-            )
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
             assert row is not None
             assert row["status"] == "cancelled"
             assert row["completed_at"] is not None
