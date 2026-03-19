@@ -156,12 +156,48 @@ class ConversationManager:
         )
         return "\n".join(parts)
 
+    async def _fetch_thread_history(
+        self,
+        channel: str,
+        thread_ts: str,
+        bot_token: str,
+    ) -> str:
+        """Fetch prior messages in a Slack thread."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://slack.com/api/conversations.replies",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    params={
+                        "channel": channel,
+                        "ts": thread_ts,
+                        "limit": 20,
+                    },
+                    timeout=10.0,
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    return ""
+                msgs = data.get("messages", [])
+                lines = []
+                for m in msgs:
+                    who = "Bot" if m.get("bot_id") else "User"
+                    lines.append(f"{who}: {m.get('text', '')}")
+                return "\n".join(lines)
+        except Exception:
+            logger.debug("Thread fetch failed", exc_info=True)
+            return ""
+
     async def handle_message(
         self,
         thread_ts: str,
         user_text: str,
         study_name: str | None = None,
         sprint_id: str | None = None,
+        channel: str | None = None,
+        bot_token: str | None = None,
     ) -> str:
         """Handle a conversational message from Slack."""
         session = await self.get_session(thread_ts)
@@ -171,7 +207,21 @@ class ConversationManager:
         if session is None:
             context = await self._build_context()
 
-            # Auto-detect sprint ID from the text or session.
+            # Fetch thread history so Claude sees the full conversation.
+            if channel and bot_token:
+                history = await self._fetch_thread_history(
+                    channel, thread_ts, bot_token
+                )
+                if history:
+                    context += "\n\n## Thread History\n" + history
+
+            # Auto-detect sprint ID from thread or text.
+            if not sprint_id and channel and bot_token:
+                # Check thread history for sprint IDs.
+                hist = history if "history" in dir() else ""
+                match = re.search(r"sp-[0-9a-f]{6}", hist)
+                if match:
+                    sprint_id = match.group(0)
             if not sprint_id:
                 match = re.search(r"sp-[0-9a-f]{6}", user_text)
                 if match:

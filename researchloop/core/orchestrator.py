@@ -838,6 +838,8 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 response_text = await cm.handle_message(
                     thread_ts=thread_ts,
                     user_text=text,
+                    channel=channel,
+                    bot_token=slack_cfg.bot_token if slack_cfg else None,
                 )
                 await notifier._post_message(response_text, thread_ts=thread_ts)
             except Exception as exc:

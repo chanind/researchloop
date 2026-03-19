@@ -14,6 +14,7 @@ features:
 oauth_config:
   scopes:
     bot:
+      - channels:history
       - chat:write
       - files:write
       - im:history
