@@ -59,7 +59,7 @@ run_step() {
     log ">>> Starting step: $step_name"
     echo ">>> Step: $step_name"
 
-    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format stream-json)
+    local cmd=($CLAUDE_CMD -p "$(cat "$prompt_file")" --output-format stream-json --verbose)
     if [ -n "$SESSION_ID" ]; then
         cmd+=(--resume "$SESSION_ID")
     fi
