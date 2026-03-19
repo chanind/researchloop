@@ -114,7 +114,12 @@ class SlackNotifier(BaseNotifier):
         idea: str,
     ) -> None:
         link = self._link(sprint_id)
-        msg = f":rocket: Sprint *{link}* started\n*Study:* {study_name}\n*Idea:* {idea}"
+        idea_trunc = idea[:300] + "…" if len(idea) > 300 else idea
+        msg = (
+            f":rocket: Sprint *{link}* started\n"
+            f"*Study:* {study_name}\n"
+            f"*Idea:* {idea_trunc}"
+        )
         resp = await self._post_message(msg)
         ts = resp.get("ts", "")
         if ts and self._cm:
@@ -128,10 +133,11 @@ class SlackNotifier(BaseNotifier):
         pdf_path: str | None = None,
     ) -> None:
         link = self._link(sprint_id)
+        summary_trunc = summary[:500] + "…" if len(summary) > 500 else summary
         msg = (
             f":white_check_mark: Sprint *{link}* completed\n"
             f"*Study:* {study_name}\n"
-            f"*Summary:* {summary}"
+            f"*Summary:* {summary_trunc}"
         )
         resp = await self._post_message(msg)
         # Store the notification for thread context.
