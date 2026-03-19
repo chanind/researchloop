@@ -223,6 +223,10 @@ class SprintManager:
 
         prompts: list[dict[str, str]] = []
 
+        # For loop sprints, idea is None — the job script
+        # will generate it and overwrite the prompt.
+        idea_text = idea or "(will be auto-generated)"
+
         # Research prompt
         prompts.append(
             {
@@ -231,7 +235,7 @@ class SprintManager:
                     _render_prompt(
                         "research_sprint.md.j2",
                         study_context=study_context,
-                        idea=idea,
+                        idea=idea_text,
                         sprint_dir=sprint_remote_dir,
                     )
                 ),
@@ -246,7 +250,7 @@ class SprintManager:
                     "content_b64": _b64encode(
                         _render_prompt(
                             "red_team.md.j2",
-                            idea=idea,
+                            idea=idea_text,
                             round_number=r,
                             max_rounds=red_team_rounds,
                         )
@@ -269,7 +273,9 @@ class SprintManager:
         prompts.append(
             {
                 "filename": "prompt_report.md",
-                "content_b64": _b64encode(_render_prompt("report.md.j2", idea=idea)),
+                "content_b64": _b64encode(
+                    _render_prompt("report.md.j2", idea=idea_text)
+                ),
             }
         )
         prompts.append(
@@ -333,7 +339,7 @@ class SprintManager:
         job_script = template.render(
             sprint_id=sprint_id,
             study_name=study_name,
-            idea=idea,
+            idea=idea_text,
             sprint_dirname=sprint_dirname,
             job_name=f"rl-{sprint_id}",
             working_dir=sprints_base,
@@ -387,10 +393,11 @@ class SprintManager:
             )
 
         # Write idea.txt so it's always available on cluster.
-        encoded_idea = _b64encode(idea)
-        await ssh.run(
-            f"echo '{encoded_idea}' | base64 -d > {sprint_remote_dir}/idea.txt"
-        )
+        if idea:
+            encoded_idea = _b64encode(idea)
+            await ssh.run(
+                f"echo '{encoded_idea}' | base64 -d > {sprint_remote_dir}/idea.txt"
+            )
 
         # Write the job script via base64.
         # Prompts are embedded in the script as base64.
