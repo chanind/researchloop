@@ -32,7 +32,7 @@ def generate_sprint_id() -> str:
     return f"sp-{secrets.token_hex(3)}"
 
 
-def format_sprint_dirname(sprint_id: str, idea: str) -> str:
+def format_sprint_dirname(sprint_id: str, idea: str | None) -> str:
     """Create a directory name for a sprint.
 
     Format: ``2026-03-15--19-50--sp-a3f7b2--feature-absorption``
@@ -43,7 +43,7 @@ def format_sprint_dirname(sprint_id: str, idea: str) -> str:
     date_part = now.strftime("%Y-%m-%d")
     time_part = now.strftime("%H-%M")
     # Slugify the idea: lowercase, replace non-alnum with hyphens, collapse
-    slug = re.sub(r"[^a-z0-9]+", "-", idea.lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", (idea or "auto").lower()).strip("-")
     slug = re.sub(r"-{2,}", "-", slug)
     # Truncate slug to keep directory names reasonable
     slug = slug[:60]
