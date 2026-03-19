@@ -129,20 +129,33 @@ async def run_migrations(db: Database) -> None:
 async def _make_idea_nullable(db: Database) -> None:
     """Remove NOT NULL from sprints.idea if needed."""
     assert db._conn is not None
+
+    # Recover from a previously failed migration.
+    tables = await db._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    table_names = {r[0] for r in await tables.fetchall()}
+    if "_sprints_old" in table_names and "sprints" not in table_names:
+        # Previous migration failed mid-way. Restore.
+        await db._conn.execute("ALTER TABLE _sprints_old RENAME TO sprints")
+    elif "_sprints_old" in table_names and "sprints" in table_names:
+        # Both exist — drop the old one.
+        await db._conn.execute("PRAGMA foreign_keys=OFF")
+        await db._conn.execute("DROP TABLE _sprints_old")
+        await db._conn.execute("PRAGMA foreign_keys=ON")
+
     cursor = await db._conn.execute("PRAGMA table_info(sprints)")
     rows = await cursor.fetchall()
     for row in rows:
         if row[1] == "idea" and row[3] == 1:  # notnull=1
+            # Disable FK checks during rebuild.
+            await db._conn.execute("PRAGMA foreign_keys=OFF")
             # Rebuild: rename → create new → copy → drop old.
             await db._conn.execute("ALTER TABLE sprints RENAME TO _sprints_old")
-            # The SCHEMA_SQL already has `idea TEXT` (nullable).
-            # Re-run it to create the new table.
             for stmt in SCHEMA_SQL.strip().split(";"):
                 stmt = stmt.strip()
                 if stmt.startswith("CREATE TABLE IF NOT EXISTS sprints"):
                     await db._conn.execute(stmt)
                     break
-            # Copy data.
             await db._conn.execute("INSERT INTO sprints SELECT * FROM _sprints_old")
             await db._conn.execute("DROP TABLE _sprints_old")
+            await db._conn.execute("PRAGMA foreign_keys=ON")
             return
