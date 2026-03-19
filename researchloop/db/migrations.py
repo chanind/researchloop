@@ -120,4 +120,29 @@ async def run_migrations(db: Database) -> None:
     await _add_column_if_missing(db, "auto_loops", "metadata_json", "TEXT")
     await _add_column_if_missing(db, "slack_sessions", "messages_json", "TEXT")
 
+    # Make idea column nullable (SQLite requires table rebuild).
+    await _make_idea_nullable(db)
+
     await db._conn.commit()
+
+
+async def _make_idea_nullable(db: Database) -> None:
+    """Remove NOT NULL from sprints.idea if needed."""
+    assert db._conn is not None
+    cursor = await db._conn.execute("PRAGMA table_info(sprints)")
+    rows = await cursor.fetchall()
+    for row in rows:
+        if row[1] == "idea" and row[3] == 1:  # notnull=1
+            # Rebuild: rename → create new → copy → drop old.
+            await db._conn.execute("ALTER TABLE sprints RENAME TO _sprints_old")
+            # The SCHEMA_SQL already has `idea TEXT` (nullable).
+            # Re-run it to create the new table.
+            for stmt in SCHEMA_SQL.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt.startswith("CREATE TABLE IF NOT EXISTS sprints"):
+                    await db._conn.execute(stmt)
+                    break
+            # Copy data.
+            await db._conn.execute("INSERT INTO sprints SELECT * FROM _sprints_old")
+            await db._conn.execute("DROP TABLE _sprints_old")
+            return
