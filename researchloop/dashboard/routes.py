@@ -11,6 +11,7 @@ import markdown as _md
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
+    JSONResponse,
     RedirectResponse,
 )
 from starlette.templating import Jinja2Templates
@@ -537,6 +538,18 @@ def add_dashboard_routes(
                             )
             except Exception as exc:
                 logger.warning("Refresh status failed: %s", exc)
+
+        # Return JSON if requested (JS refresh), otherwise redirect.
+        if request.headers.get("accept", "").startswith("application/json"):
+            updated = await queries.get_sprint(orchestrator.db, sprint_id)
+            return JSONResponse(
+                {
+                    "status": updated["status"] if updated else None,
+                    "idea": updated.get("idea") if updated else None,
+                    "summary": updated.get("summary") if updated else None,
+                    "completed_at": updated.get("completed_at") if updated else None,
+                }
+            )
 
         return RedirectResponse(
             f"/dashboard/sprints/{sprint_id}",

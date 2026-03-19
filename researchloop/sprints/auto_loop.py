@@ -100,8 +100,12 @@ class AutoLoopController:
         )
 
         # First sprint — idea will be auto-generated on the cluster.
-        sprint = await self.sprint_manager.run_sprint(study_name, None)
+        # Set loop_id BEFORE submission so submit_sprint includes the
+        # idea generator prompt in the job script.
+        sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
+        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        sprint.job_id = job_id
 
         await queries.update_auto_loop(
             self.db,
@@ -169,11 +173,12 @@ class AutoLoopController:
 
         # Submit next sprint — idea will be auto-generated
         # on the cluster where Claude is authenticated.
-        sprint = await self.sprint_manager.run_sprint(
-            study_name,
-            "",
-        )
+        # Set loop_id BEFORE submission so submit_sprint includes the
+        # idea generator prompt in the job script.
+        sprint = await self.sprint_manager.create_sprint(study_name, None)
         await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
+        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        sprint.job_id = job_id
 
         await queries.update_auto_loop(
             self.db,

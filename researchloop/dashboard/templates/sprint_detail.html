@@ -2,7 +2,7 @@
 {% block title %}{{ sprint.id }} — ResearchLoop{% endblock %}
 {% block head %}
 {% if sprint.status.startswith('running') or sprint.status == 'submitted' %}
-<meta http-equiv="refresh" content="30;url=/dashboard/sprints/{{ sprint.id }}/refresh">
+<script>setTimeout(function(){refreshSprint()},30000);</script>
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -10,20 +10,18 @@
 <div class="card">
   <dl>
     <dt>Study</dt><dd><a href="/dashboard/studies/{{ sprint.study_name }}">{{ sprint.study_name }}</a></dd>
-    <dt>Status</dt><dd><span class="badge badge-{{ sprint.status.split(' ')[0] }}">{{ sprint.status }}</span></dd>
-    <dt>Idea</dt><dd>{% if sprint.idea %}{{ sprint.idea }}{% elif sprint.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% else %}—{% endif %}</dd>
+    <dt>Status</dt><dd id="sprint-status"><span class="badge badge-{{ sprint.status.split(' ')[0] }}">{{ sprint.status }}</span></dd>
+    <dt>Idea</dt><dd id="sprint-idea">{% if sprint.idea %}{{ sprint.idea }}{% elif sprint.loop_id %}<span class="dim" style="font-style:italic">auto-generating idea...</span>{% else %}—{% endif %}</dd>
     {% if sprint.loop_id %}<dt>Loop</dt><dd><a href="/dashboard/loops/{{ sprint.loop_id }}">{{ sprint.loop_id }}</a></dd>{% endif %}
     <dt>Job ID</dt><dd>{{ sprint.job_id or '—' }}</dd>
     <dt>Directory</dt><dd class="dim">{{ sprint.directory or '—' }}</dd>
     <dt>Created</dt><dd>{{ sprint.created_at }}</dd>
-    <dt>Started</dt><dd>{{ sprint.started_at or '—' }}</dd>
-    <dt>Completed</dt><dd>{{ sprint.completed_at or '—' }}</dd>
+    <dt>Started</dt><dd id="sprint-started">{{ sprint.started_at or '—' }}</dd>
+    <dt>Completed</dt><dd id="sprint-completed">{{ sprint.completed_at or '—' }}</dd>
   </dl>
   <div class="actions" style="justify-content: space-between;">
     <div style="display: flex; gap: 0.5rem;">
-      <form method="post" action="/dashboard/sprints/{{ sprint.id }}/refresh" onsubmit="this.querySelector('button').innerHTML='<span class=spinning style=display:inline-block>&#8635;</span> Refreshing...'">
-        <button type="submit" class="btn btn-sm">&#8635; Refresh status</button>
-      </form>
+      <button type="button" id="refresh-btn" class="btn btn-sm" onclick="refreshSprint()">&#8635; Refresh status</button>
       {% if sprint.status not in ('completed', 'failed', 'cancelled') %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/cancel">
         <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Cancel this sprint?')">Cancel</button>
@@ -40,7 +38,7 @@
 </div>
 {% if sprint.summary %}
 <h3>Summary</h3>
-<div class="card"><p>{{ sprint.summary }}</p></div>
+<div class="card" id="summary-section"><p>{{ sprint.summary }}</p></div>
 {% endif %}
 {% if report %}
 <h3>Report</h3>
@@ -66,4 +64,34 @@
   </tbody>
 </table>
 {% endif %}
+<script>
+function refreshSprint(){
+  var btn=document.getElementById('refresh-btn');
+  btn.innerHTML='<span class="spinning" style="display:inline-block">&#8635;</span> Refreshing...';
+  btn.disabled=true;
+  fetch('/dashboard/sprints/{{ sprint.id }}/refresh',{method:'POST',headers:{'Accept':'application/json'}})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(d.status){
+        var s=d.status.split(' ')[0];
+        document.getElementById('sprint-status').innerHTML='<span class="badge badge-'+s+'">'+d.status+'</span>';
+      }
+      if(d.idea){document.getElementById('sprint-idea').textContent=d.idea;}
+      if(d.summary){
+        var sec=document.getElementById('summary-section');
+        if(sec){sec.querySelector('p').textContent=d.summary;}
+      }
+      if(d.completed_at){document.getElementById('sprint-completed').textContent=d.completed_at;}
+      btn.innerHTML='&#10003; Updated';btn.style.color='#86efac';
+      setTimeout(function(){btn.innerHTML='&#8635; Refresh status';btn.style.color='';btn.disabled=false;},2000);
+      if(d.status && (d.status.startsWith('running') || d.status==='submitted')){
+        setTimeout(function(){refreshSprint()},30000);
+      }
+    })
+    .catch(function(){
+      btn.innerHTML='&#8635; Refresh status';btn.disabled=false;
+      window.location.reload();
+    });
+}
+</script>
 {% endblock %}

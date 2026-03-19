@@ -558,6 +558,7 @@ class SprintManager:
         status: str,
         summary: str | None = None,
         error: str | None = None,
+        idea: str | None = None,
     ) -> None:
         """Handle a sprint completion event.
 
@@ -566,14 +567,25 @@ class SprintManager:
         """
         now = datetime.now(timezone.utc).isoformat()
 
-        await queries.update_sprint(
-            self.db,
-            sprint_id,
-            status=status,
-            completed_at=now,
-            summary=summary,
-            error=error,
-        )
+        update_kw: dict[str, str | None] = {
+            "status": status,
+            "completed_at": now,
+            "summary": summary,
+            "error": error,
+        }
+
+        # Update the idea if it was auto-generated (sprint had idea=None).
+        sprint_before = await queries.get_sprint(self.db, sprint_id)
+        if sprint_before and not sprint_before.get("idea"):
+            if idea:
+                update_kw["idea"] = idea[:500]
+            else:
+                # Fallback: try to read idea.txt from the cluster.
+                fetched = await self._fetch_idea(sprint_before)
+                if fetched:
+                    update_kw["idea"] = fetched[:500]
+
+        await queries.update_sprint(self.db, sprint_id, **update_kw)
 
         sprint = await queries.get_sprint(self.db, sprint_id)
         study_name = sprint["study_name"] if sprint else "unknown"
@@ -619,6 +631,42 @@ class SprintManager:
             sprint_id,
             status,
         )
+
+    async def _fetch_idea(self, sprint: dict) -> str | None:
+        """Try to read idea.txt from the cluster for auto-loop sprints."""
+        try:
+            study_name = sprint["study_name"]
+            if self.study_manager is None:
+                return None
+            cluster_cfg = await self.study_manager.get_cluster_config(study_name)
+            study_cfg = None
+            for s in self.config.studies:
+                if s.name == study_name:
+                    study_cfg = s
+                    break
+            if study_cfg and study_cfg.sprints_dir:
+                sbase = study_cfg.sprints_dir
+            else:
+                sbase = f"{cluster_cfg.working_dir}/{study_name}"
+            sp_dir = sprint.get("directory", "")
+            remote_idea = f"{sbase}/{sp_dir}/idea.txt"
+
+            conn = {
+                "host": cluster_cfg.host,
+                "port": cluster_cfg.port,
+                "user": cluster_cfg.user,
+                "key_path": cluster_cfg.key_path,
+            }
+            ssh = await self.ssh_manager.get_connection(conn)
+            stdout, _, rc = await ssh.run(f"cat {remote_idea} 2>/dev/null")
+            if rc == 0 and stdout.strip():
+                return stdout.strip()
+            return None
+        except Exception:
+            logger.debug(
+                "Idea fetch failed for %s", sprint.get("id"), exc_info=True
+            )
+            return None
 
     async def _fetch_pdf(self, sprint: dict) -> str | None:
         """Try to download report.pdf from the cluster."""

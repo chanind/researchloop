@@ -394,6 +394,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
         status: str = body.get("status", "completed")
         summary: str | None = body.get("summary")
         error: str | None = body.get("error")
+        idea: str | None = body.get("idea")
 
         if not sprint_id:
             raise HTTPException(status_code=400, detail="sprint_id is required")
@@ -404,6 +405,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             status=status,
             summary=summary,
             error=error,
+            idea=idea,
         )
 
         # Trigger auto-loop advancement if applicable.

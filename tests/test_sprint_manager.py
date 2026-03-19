@@ -121,6 +121,51 @@ class TestSprintManagerCompletion:
         assert row["status"] == "failed"
         assert row["error"] == "OOM on GPU"
 
+    async def test_handle_completion_updates_idea(self, db_with_study, sample_config):
+        """When a sprint has no idea (auto-loop), completion should update it."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", idea=None)
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["idea"] is None
+
+        await mgr.handle_completion(
+            sprint.id,
+            status="completed",
+            summary="Results",
+            idea="Investigate feature absorption in SAEs",
+        )
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["idea"] == "Investigate feature absorption in SAEs"
+        assert row["status"] == "completed"
+
+    async def test_handle_completion_preserves_existing_idea(
+        self, db_with_study, sample_config
+    ):
+        """When a sprint already has an idea, completion should not overwrite it."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", idea="original idea")
+
+        await mgr.handle_completion(
+            sprint.id,
+            status="completed",
+            summary="Results",
+            idea="different idea from webhook",
+        )
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["idea"] == "original idea"
+
     async def test_handle_completion_with_notifier(self, db_with_study, sample_config):
         from researchloop.comms.router import NotificationRouter
 

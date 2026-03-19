@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from researchloop.core.models import Sprint, SprintStatus
 from researchloop.db import queries
@@ -16,7 +16,7 @@ from researchloop.sprints.auto_loop import AutoLoopController
 def _make_sprint(
     sid: str = "sp-aaa111",
     study: str = "test-study",
-    idea: str = "test idea",
+    idea: str | None = "test idea",
 ) -> Sprint:
     return Sprint(
         id=sid,
@@ -29,13 +29,18 @@ def _make_sprint(
 def _make_controller(
     db,
     config,
-    run_sprint_side_effect=None,
+    create_sprint_return=None,
+    submit_sprint_return="job-123",
 ) -> AutoLoopController:
     sprint_mgr = AsyncMock()
-    if run_sprint_side_effect is not None:
-        sprint_mgr.run_sprint.side_effect = run_sprint_side_effect
-    else:
-        sprint_mgr.run_sprint.return_value = _make_sprint()
+    sprint_mgr.create_sprint.return_value = (
+        create_sprint_return or _make_sprint()
+    )
+    sprint_mgr.submit_sprint.return_value = submit_sprint_return
+    # Keep run_sprint for tests that don't need the split
+    sprint_mgr.run_sprint.return_value = (
+        create_sprint_return or _make_sprint()
+    )
     return AutoLoopController(
         db=db,
         sprint_manager=sprint_mgr,
@@ -129,12 +134,12 @@ class TestOnSprintCompleteStartsNext:
         db_with_study,
         sample_config,
     ):
-        next_sprint = _make_sprint(sid="sp-next")
+        next_sprint = _make_sprint(sid="sp-next", idea=None)
 
         ctrl = _make_controller(
             db_with_study,
             sample_config,
-            run_sprint_side_effect=[next_sprint],
+            create_sprint_return=next_sprint,
         )
 
         await queries.create_auto_loop(
@@ -153,12 +158,12 @@ class TestOnSprintCompleteStartsNext:
 
         await ctrl.on_sprint_complete("sp-done")
 
-        # run_sprint was called with auto-loop marker.
-        ctrl.sprint_manager.run_sprint.assert_called_once()
-        call_args = ctrl.sprint_manager.run_sprint.call_args
-        assert call_args[0][0] == "test-study"
-        idea_text = call_args[0][1]
-        assert not idea_text  # None or empty
+        # create_sprint was called with None idea.
+        ctrl.sprint_manager.create_sprint.assert_called_once_with(
+            "test-study", None
+        )
+        # submit_sprint was called after loop_id was set.
+        ctrl.sprint_manager.submit_sprint.assert_called_once_with("sp-next")
 
         # current_sprint_id updated.
         loop = await queries.get_auto_loop(
@@ -182,7 +187,111 @@ class TestOnSprintCompleteIgnoresNonLoop:
         # No auto-loop exists, so this should be a no-op.
         await ctrl.on_sprint_complete("sp-orphan")
 
-        ctrl.sprint_manager.run_sprint.assert_not_called()
+        ctrl.sprint_manager.create_sprint.assert_not_called()
+        ctrl.sprint_manager.submit_sprint.assert_not_called()
+
+
+# ------------------------------------------------------------------
+# start — loop_id set before submission
+# ------------------------------------------------------------------
+
+
+class TestStartSetsLoopIdBeforeSubmit:
+    """loop_id must be set on the sprint BEFORE submit_sprint is called."""
+
+    async def test_loop_id_set_before_submit(
+        self,
+        db_with_study,
+        sample_config,
+    ):
+        """Verify that loop_id is set in DB before submit_sprint runs.
+
+        This is the root cause of the 'auto-generating idea...' bug:
+        if loop_id isn't set before submission, submit_sprint won't
+        include the idea generator prompt in the job script.
+        """
+        sprint = _make_sprint(sid="sp-loop1", idea=None)
+        ctrl = _make_controller(
+            db_with_study,
+            sample_config,
+            create_sprint_return=sprint,
+        )
+
+        # Create the sprint in DB first (as create_sprint would).
+        await queries.create_sprint(
+            db_with_study,
+            id="sp-loop1",
+            study_name="test-study",
+            idea=None,
+        )
+
+        # Track what loop_id was at submit time.
+        loop_id_at_submit: list[str | None] = []
+
+        async def tracking_submit(sprint_id):
+            row = await queries.get_sprint(db_with_study, sprint_id)
+            loop_id_at_submit.append(row.get("loop_id") if row else None)
+            return "job-123"
+
+        ctrl.sprint_manager.submit_sprint.side_effect = tracking_submit
+
+        loop_id = await ctrl.start("test-study", 3)
+
+        assert loop_id.startswith("loop-")
+        assert len(loop_id_at_submit) == 1
+        assert loop_id_at_submit[0] is not None, (
+            "loop_id must be set BEFORE submit_sprint is called"
+        )
+
+    async def test_on_sprint_complete_sets_loop_id_before_submit(
+        self,
+        db_with_study,
+        sample_config,
+    ):
+        """Verify loop_id is set before submit on subsequent sprints too."""
+        next_sprint = _make_sprint(sid="sp-next2", idea=None)
+        ctrl = _make_controller(
+            db_with_study,
+            sample_config,
+            create_sprint_return=next_sprint,
+        )
+
+        # Set up loop and create the next sprint in DB.
+        await queries.create_auto_loop(
+            db_with_study,
+            id="loop-order",
+            study_name="test-study",
+            total_count=3,
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-order",
+            current_sprint_id="sp-prev",
+            status="running",
+            completed_count=0,
+        )
+        await queries.create_sprint(
+            db_with_study,
+            id="sp-next2",
+            study_name="test-study",
+            idea=None,
+        )
+
+        loop_id_at_submit: list[str | None] = []
+
+        async def check_loop_id_submit(sprint_id):
+            row = await queries.get_sprint(db_with_study, sprint_id)
+            loop_id_at_submit.append(row.get("loop_id") if row else None)
+            return "job-456"
+
+        ctrl.sprint_manager.submit_sprint.side_effect = check_loop_id_submit
+
+        await ctrl.on_sprint_complete("sp-prev")
+
+        assert len(loop_id_at_submit) == 1
+        assert loop_id_at_submit[0] == "loop-order", (
+            f"Expected loop_id='loop-order', got {loop_id_at_submit[0]!r}"
+        )
 
 
 # ------------------------------------------------------------------

@@ -120,8 +120,9 @@ print(json.dumps({
     'status': sys.argv[1],
     'summary': sys.argv[2] or None,
     'error': sys.argv[3] or None,
+    'idea': sys.argv[4] or None,
 }))
-" "$status" "$summary" "$error" 2>/dev/null)
+" "$status" "$summary" "$error" "$next_idea" 2>/dev/null)
     # Retry up to 3 times (server may be cold).
     for attempt in 1 2 3; do
         if curl -s --max-time 30 -X POST \
@@ -233,8 +234,14 @@ if [ -f "$SPRINT_DIR/summary.txt" ]; then
     SUMMARY=$(cat "$SPRINT_DIR/summary.txt")
 fi
 
+# Read idea (may have been generated at runtime)
+IDEA=""
+if [ -f "$SPRINT_DIR/idea.txt" ]; then
+    IDEA=$(cat "$SPRINT_DIR/idea.txt")
+fi
+
 # Send completion webhook
-send_webhook "$FINAL_STATUS" "$SUMMARY" "$ERROR_MSG"
+send_webhook "$FINAL_STATUS" "$SUMMARY" "$ERROR_MSG" "$IDEA"
 
 echo "Finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (status: $FINAL_STATUS)"
 [ "$FINAL_STATUS" = "completed" ] && exit 0 || exit 1
