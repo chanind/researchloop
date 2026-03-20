@@ -11,13 +11,18 @@
     <dt>Created</dt><dd>{{ loop.created_at }}</dd>
     {% if loop.stopped_at %}<dt>Stopped</dt><dd>{{ loop.stopped_at }}</dd>{% endif %}
   </dl>
-  {% if loop.status in ('running', 'pending') %}
-  <div class="actions">
+  <div class="actions" style="display: flex; gap: 0.5rem;">
+    {% if loop.status in ('running', 'pending') %}
     <form method="post" action="/dashboard/loops/{{ loop.id }}/stop">
       <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Stop this loop?')">Stop loop</button>
     </form>
+    {% endif %}
+    {% if loop.status in ('stopped', 'failed') and loop.completed_count < loop.total_count %}
+    <form method="post" action="/dashboard/loops/{{ loop.id }}/resume" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Resuming...';">
+      <button type="submit" class="btn btn-sm">Resume loop</button>
+    </form>
+    {% endif %}
   </div>
-  {% endif %}
 </div>
 {% if context %}
 <h3>Idea Generation Context</h3>

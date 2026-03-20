@@ -17,7 +17,7 @@
   <form method="post" action="/dashboard/studies/{{ study.name }}/sprint" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Submitting...';">
     <div class="form-group">
       <label for="idea">Research idea</label>
-      <textarea name="idea" id="idea" rows="3" placeholder="Describe what this sprint should investigate..." required></textarea>
+      <textarea name="idea" id="idea" rows="3" placeholder="Describe what this sprint should investigate..." required>{{ prefill_idea or '' }}</textarea>
     </div>
     <button type="submit" class="btn">Submit sprint</button>
   </form>

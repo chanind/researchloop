@@ -30,6 +30,14 @@
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/delete">
         <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this sprint? This cannot be undone.')">Delete</button>
       </form>
+      {% if sprint.status in ('failed', 'cancelled') %}
+      <form method="post" action="/dashboard/sprints/{{ sprint.id }}/resubmit" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Resubmitting...';">
+        <button type="submit" class="btn btn-sm">Resubmit</button>
+      </form>
+      {% endif %}
+      {% if sprint.idea %}
+      <a href="/dashboard/studies/{{ sprint.study_name }}?idea={{ sprint.idea|urlencode }}" class="btn btn-sm" style="text-decoration:none">Copy</a>
+      {% endif %}
     </div>
     {% if has_pdf %}
     <a href="/dashboard/sprints/{{ sprint.id }}/report.pdf" target="_blank" class="btn btn-sm" style="text-decoration: none;">&#128196; Report PDF</a>

@@ -2,6 +2,29 @@
 {% block title %}Auto-Loops — ResearchLoop{% endblock %}
 {% block content %}
 <h2>Auto-Loops</h2>
+
+<h3>New loop</h3>
+<div class="card">
+  <form method="post" action="/dashboard/loops/new" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Starting...';">
+    <div class="form-group">
+      <label for="study_name">Study</label>
+      <select name="study_name" id="study_name" required>
+        {% for s in studies %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="count">Number of sprints</label>
+      <input type="number" name="count" id="count" value="5" min="1" max="50" required style="width:80px">
+    </div>
+    <div class="form-group">
+      <label for="context">Idea generation guidance <span class="dim">(optional)</span></label>
+      <textarea name="context" id="context" rows="2" placeholder="e.g. Focus on improving F1 score, try approaches that don't use LISTA..."></textarea>
+    </div>
+    <button type="submit" class="btn">Start loop</button>
+  </form>
+</div>
+
+<h3>Loops</h3>
 <table>
   <thead><tr><th>ID</th><th>Study</th><th>Status</th><th>Progress</th><th>Current Sprint</th><th>Created</th></tr></thead>
   <tbody>

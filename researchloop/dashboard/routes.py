@@ -266,6 +266,7 @@ def add_dashboard_routes(
             raise HTTPException(status_code=404, detail="Study not found")
 
         sprints = await queries.list_sprints(orchestrator.db, study_name=name, limit=50)
+        prefill_idea = request.query_params.get("idea", "")
         return templates.TemplateResponse(
             "study_detail.html",
             _ctx(
@@ -273,6 +274,7 @@ def add_dashboard_routes(
                 authenticated=True,
                 study=study,
                 sprints=sprints,
+                prefill_idea=prefill_idea,
             ),
         )
 
@@ -598,6 +600,34 @@ def add_dashboard_routes(
         await queries.delete_sprint(orchestrator.db, sprint_id)
         return RedirectResponse("/dashboard/sprints", status_code=303)
 
+    @app.post("/dashboard/sprints/{sprint_id}/resubmit")
+    async def dashboard_sprint_resubmit(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
+        """Resubmit a failed/cancelled sprint with the same idea."""
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.db is not None
+        assert orchestrator.sprint_manager is not None
+
+        sprint = await queries.get_sprint(orchestrator.db, sprint_id)
+        if sprint is None:
+            raise HTTPException(status_code=404, detail="Sprint not found")
+
+        idea = sprint.get("idea") or sprint.get("summary") or "Retry"
+        study_name = sprint["study_name"]
+
+        try:
+            new_sprint = await orchestrator.sprint_manager.run_sprint(study_name, idea)
+            return RedirectResponse(
+                f"/dashboard/sprints/{new_sprint.id}",
+                status_code=303,
+            )
+        except Exception as exc:
+            logger.warning("Resubmit failed: %s", exc)
+            return RedirectResponse(
+                f"/dashboard/sprints/{sprint_id}",
+                status_code=303,
+            )
+
     @app.post("/dashboard/sprints/new")
     async def dashboard_sprint_new(request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
@@ -660,9 +690,16 @@ def add_dashboard_routes(
         assert orchestrator.db is not None
 
         loops = await queries.list_auto_loops(orchestrator.db)
+        study_rows = await queries.list_studies(orchestrator.db)
+        study_names = [s["name"] for s in study_rows]
         return templates.TemplateResponse(
             "loops.html",
-            _ctx(request, authenticated=True, loops=loops),
+            _ctx(
+                request,
+                authenticated=True,
+                loops=loops,
+                studies=study_names,
+            ),
         )
 
     @app.get("/dashboard/loops/{loop_id}")
@@ -720,6 +757,52 @@ def add_dashboard_routes(
             f"/dashboard/loops/{loop_id}",
             status_code=303,
         )
+
+    @app.post("/dashboard/loops/{loop_id}/resume")
+    async def dashboard_loop_resume(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.auto_loop is not None
+        try:
+            await orchestrator.auto_loop.resume(loop_id)
+        except Exception as exc:
+            logger.warning("Loop resume failed: %s", exc)
+        return RedirectResponse(
+            f"/dashboard/loops/{loop_id}",
+            status_code=303,
+        )
+
+    @app.post("/dashboard/loops/new")
+    async def dashboard_loop_new(request: Request):  # type: ignore[no-untyped-def]
+        if redir := await _gate(request):
+            return redir
+        assert orchestrator.auto_loop is not None
+
+        form = await request.form()
+        study_name = str(form.get("study_name", ""))
+        count_str = str(form.get("count", "5"))
+        context = str(form.get("context", "")).strip()
+
+        if not study_name:
+            return RedirectResponse("/dashboard/loops", status_code=303)
+
+        try:
+            count = int(count_str)
+        except ValueError:
+            count = 5
+
+        try:
+            loop_id = await orchestrator.auto_loop.start(study_name, count, context)
+            return RedirectResponse(
+                f"/dashboard/loops/{loop_id}",
+                status_code=303,
+            )
+        except Exception as exc:
+            logger.warning("Loop creation failed: %s", exc)
+            return RedirectResponse(
+                "/dashboard/loops",
+                status_code=303,
+            )
 
     # ----------------------------------------------------------
     # Artifact download

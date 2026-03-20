@@ -119,6 +119,51 @@ class AutoLoopController:
         return loop_id
 
     # ------------------------------------------------------------------
+    # Resume
+    # ------------------------------------------------------------------
+
+    async def resume(self, loop_id: str) -> str:
+        """Resume a stopped or failed auto-loop.
+
+        Submits the next sprint and marks the loop as running again.
+        Returns the new sprint ID.
+        """
+        loop = await queries.get_auto_loop(self.db, loop_id)
+        if loop is None:
+            raise ValueError(f"Auto-loop not found: {loop_id}")
+
+        if loop["status"] not in ("stopped", "failed"):
+            raise ValueError(f"Cannot resume loop in status {loop['status']!r}")
+
+        if loop["completed_count"] >= loop["total_count"]:
+            raise ValueError("Loop already completed all sprints")
+
+        study_name: str = loop["study_name"]
+
+        sprint = await self.sprint_manager.create_sprint(study_name, None)
+        await queries.update_sprint(self.db, sprint.id, loop_id=loop_id)
+        job_id = await self.sprint_manager.submit_sprint(sprint.id)
+        sprint.job_id = job_id
+
+        await queries.update_auto_loop(
+            self.db,
+            loop_id,
+            current_sprint_id=sprint.id,
+            status="running",
+            stopped_at=None,
+        )
+
+        logger.info(
+            "Auto-loop %s resumed: sprint %s submitted (%d/%d)",
+            loop_id,
+            sprint.id,
+            loop["completed_count"] + 1,
+            loop["total_count"],
+        )
+
+        return sprint.id
+
+    # ------------------------------------------------------------------
     # Sprint completion callback
     # ------------------------------------------------------------------
 
