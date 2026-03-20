@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "README.md"
 
 permissions:
   contents: read
@@ -32,10 +33,10 @@ jobs:
         run: uv python install 3.12
 
       - name: Install docs dependencies
-        run: uv pip install --system mkdocs-material
+        run: uv venv /tmp/docs-venv && uv pip install --python /tmp/docs-venv/bin/python mkdocs-material
 
       - name: Build docs
-        run: mkdocs build --strict
+        run: /tmp/docs-venv/bin/mkdocs build --strict
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
