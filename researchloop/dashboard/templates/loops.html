@@ -6,6 +6,7 @@
 <h3>New loop</h3>
 <div class="card">
   <form method="post" action="/dashboard/loops/new" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Starting...';">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-group">
       <label for="study_name">Study</label>
       <select name="study_name" id="study_name" required>

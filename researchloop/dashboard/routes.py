@@ -20,7 +20,9 @@ from researchloop.dashboard.auth import (
     SESSION_COOKIE,
     SessionManager,
     check_password,
+    generate_csrf_token,
     hash_password,
+    verify_csrf_token,
 )
 from researchloop.db import queries
 
@@ -123,10 +125,35 @@ def add_dashboard_routes(
             opts["cpus-per-task"] = cpus
         return opts
 
+    def _csrf_token(request: Request) -> str:
+        """Return a CSRF token for the current session, or empty string."""
+        token = request.cookies.get(SESSION_COOKIE, "")
+        if not token or _session_mgr is None:
+            return ""
+        return generate_csrf_token(token, _session_mgr.secret_key)
+
+    async def _check_csrf(request: Request) -> None:
+        """Validate the CSRF token from form data or header.
+
+        Checks ``X-CSRF-Token`` header first, then falls back to the
+        ``csrf_token`` form field.  Raises 403 on failure.
+        """
+        csrf_tok = request.headers.get("X-CSRF-Token", "")
+        if not csrf_tok:
+            form = await request.form()
+            csrf_tok = str(form.get("csrf_token", ""))
+        session_tok = request.cookies.get(SESSION_COOKIE, "")
+        mgr = await _get_session_mgr()
+        if not session_tok or not verify_csrf_token(
+            session_tok, mgr.secret_key, csrf_tok
+        ):
+            raise HTTPException(status_code=403, detail="CSRF token invalid")
+
     def _ctx(request: Request, authenticated: bool = False, **kwargs: object) -> dict:
         return {
             "request": request,
             "authenticated": authenticated,
+            "csrf_token": _csrf_token(request),
             **kwargs,
         }
 
@@ -386,6 +413,8 @@ def add_dashboard_routes(
         """Check real job status on the cluster and update."""
         if redir := await _gate(request):
             return redir
+        if request.method == "POST":
+            await _check_csrf(request)
         assert orchestrator.db is not None
         assert orchestrator.sprint_manager is not None
 
@@ -602,6 +631,7 @@ def add_dashboard_routes(
     async def dashboard_sprint_cancel(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.sprint_manager is not None
         try:
             await orchestrator.sprint_manager.cancel_sprint(sprint_id)
@@ -616,6 +646,7 @@ def add_dashboard_routes(
     async def dashboard_sprint_delete(sprint_id: str, request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.db is not None
         await queries.delete_sprint(orchestrator.db, sprint_id)
         return RedirectResponse("/dashboard/sprints", status_code=303)
@@ -625,6 +656,7 @@ def add_dashboard_routes(
         """Resubmit a failed/cancelled sprint with the same idea."""
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.db is not None
         assert orchestrator.sprint_manager is not None
 
@@ -652,6 +684,7 @@ def add_dashboard_routes(
     async def dashboard_sprint_new(request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.sprint_manager is not None
 
         form = await request.form()
@@ -678,6 +711,7 @@ def add_dashboard_routes(
     async def dashboard_study_sprint(name: str, request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.sprint_manager is not None
 
         form = await request.form()
@@ -776,6 +810,7 @@ def add_dashboard_routes(
     async def dashboard_loop_stop(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.auto_loop is not None
         try:
             await orchestrator.auto_loop.stop(loop_id)
@@ -790,6 +825,7 @@ def add_dashboard_routes(
     async def dashboard_loop_resume(loop_id: str, request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.auto_loop is not None
         try:
             await orchestrator.auto_loop.resume(loop_id)
@@ -804,6 +840,7 @@ def add_dashboard_routes(
     async def dashboard_loop_new(request: Request):  # type: ignore[no-untyped-def]
         if redir := await _gate(request):
             return redir
+        await _check_csrf(request)
         assert orchestrator.auto_loop is not None
 
         form = await request.form()

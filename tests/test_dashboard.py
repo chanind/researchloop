@@ -64,6 +64,35 @@ def _make_app_with_password(
     return client, orch, pw_hash
 
 
+def _login_and_csrf(
+    client: TestClient,
+    password: str = "secret",
+) -> tuple[str, str]:
+    """Log in, return (session_cookie, csrf_token)."""
+    resp = client.post(
+        "/dashboard/login",
+        data={"password": password},
+        follow_redirects=False,
+    )
+    cookie = resp.cookies.get(SESSION_COOKIE, "")
+    # The session manager is created lazily; we need its secret_key.
+    # Since we can't access it directly, compute the CSRF token from the
+    # cookie by hitting a page and extracting from the HTML.  But it's
+    # simpler to use the generate_csrf_token helper with the signing key
+    # that was stored in the DB.  The signing key is auto-generated on
+    # first access.  We can read it from the rendered page instead.
+    # Actually, the easiest approach: fetch a page and parse the csrf_token.
+    page = client.get(
+        "/dashboard/sprints",
+        cookies={SESSION_COOKIE: cookie},
+    )
+    import re
+
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', page.text)
+    csrf = m.group(1) if m else ""
+    return cookie, csrf
+
+
 class TestFirstRunSetup:
     def test_redirects_to_setup_when_no_password(self):
         client, _ = _make_app()
@@ -288,12 +317,7 @@ class TestSprintCancel:
 
         client, orch, _ = _make_app_with_password("secret")
         with client:
-            login_resp = client.post(
-                "/dashboard/login",
-                data={"password": "secret"},
-                follow_redirects=False,
-            )
-            cookie = login_resp.cookies.get(SESSION_COOKIE)
+            cookie, csrf = _login_and_csrf(client, "secret")
 
             await queries.create_sprint(
                 orch.db,
@@ -310,6 +334,7 @@ class TestSprintCancel:
             ) as mock_cancel:
                 resp = client.post(
                     "/dashboard/sprints/sp-cancel01/cancel",
+                    data={"csrf_token": csrf},
                     cookies={SESSION_COOKIE: cookie},
                     follow_redirects=False,
                 )
@@ -335,12 +360,7 @@ class TestSprintDelete:
     async def test_delete_sprint_redirects(self):
         client, orch, _ = _make_app_with_password("secret")
         with client:
-            login_resp = client.post(
-                "/dashboard/login",
-                data={"password": "secret"},
-                follow_redirects=False,
-            )
-            cookie = login_resp.cookies.get(SESSION_COOKIE)
+            cookie, csrf = _login_and_csrf(client, "secret")
 
             await queries.create_sprint(
                 orch.db,
@@ -351,6 +371,7 @@ class TestSprintDelete:
 
             resp = client.post(
                 "/dashboard/sprints/sp-del01/delete",
+                data={"csrf_token": csrf},
                 cookies={SESSION_COOKIE: cookie},
                 follow_redirects=False,
             )

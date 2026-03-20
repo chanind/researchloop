@@ -19,11 +19,13 @@
   <div class="actions" style="display: flex; gap: 0.5rem;">
     {% if loop.status in ('running', 'pending') %}
     <form method="post" action="/dashboard/loops/{{ loop.id }}/stop">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Stop this loop?')">Stop loop</button>
     </form>
     {% endif %}
     {% if loop.status in ('stopped', 'failed') and loop.completed_count < loop.total_count %}
     <form method="post" action="/dashboard/loops/{{ loop.id }}/resume" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Resuming...';">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit" class="btn btn-sm">Resume loop</button>
     </form>
     {% endif %}
@@ -46,7 +48,7 @@
       <td class="dim">{{ sp.created_at }}</td>
       <td>
         {% if sp.status.startswith('running') or sp.status == 'submitted' %}
-        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST',redirect:'manual'}).then(function(){b.innerHTML='&#10003;';b.style.color='#86efac';setTimeout(function(){b.innerHTML='&#8635;';b.style.color='';},2000)})">&#8635;</button>
+        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST',headers:{'X-CSRF-Token':'{{ csrf_token }}'},redirect:'manual'}).then(function(){b.innerHTML='&#10003;';b.style.color='#86efac';setTimeout(function(){b.innerHTML='&#8635;';b.style.color='';},2000)})">&#8635;</button>
         {% endif %}
       </td>
     </tr>

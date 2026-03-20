@@ -15,6 +15,7 @@
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
   {% if success %}<p class="success">{{ success }}</p>{% endif %}
   <form method="post" action="/dashboard/studies/{{ study.name }}/sprint" onsubmit="var b=this.querySelector('button[type=submit]');if(b.disabled)return false;b.disabled=true;b.textContent='Submitting...';">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-group">
       <label for="idea">Research idea</label>
       <textarea name="idea" id="idea" rows="3" placeholder="Describe what this sprint should investigate..." required>{{ prefill_idea or '' }}</textarea>
@@ -53,7 +54,7 @@
       <td class="dim">{{ sp.created_at }}</td>
       <td>
         {% if sp.status.startswith('running') or sp.status == 'submitted' %}
-        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST',redirect:'manual'}).then(function(){b.innerHTML='&#10003;';b.style.color='#86efac';setTimeout(function(){b.innerHTML='&#8635;';b.style.color='';},2000)})">&#8635;</button>
+        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST',headers:{'X-CSRF-Token':'{{ csrf_token }}'},redirect:'manual'}).then(function(){b.innerHTML='&#10003;';b.style.color='#86efac';setTimeout(function(){b.innerHTML='&#8635;';b.style.color='';},2000)})">&#8635;</button>
         {% endif %}
       </td>
     </tr>

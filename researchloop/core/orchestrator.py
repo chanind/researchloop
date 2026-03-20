@@ -684,6 +684,17 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
 
         # Signature verification
         slack_cfg = orchestrator.config.slack
+        if slack_cfg and slack_cfg.bot_token and not slack_cfg.signing_secret:
+            logger.warning(
+                "Slack signing_secret is not configured — "
+                "rejecting event. Set [slack] signing_secret in "
+                "researchloop.toml or the "
+                "RESEARCHLOOP_SLACK_SIGNING_SECRET env var."
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Slack signing_secret is required but not configured",
+            )
         if slack_cfg and slack_cfg.signing_secret:
             ts = request.headers.get("X-Slack-Request-Timestamp", "")
             sig = request.headers.get("X-Slack-Signature", "")

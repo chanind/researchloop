@@ -24,14 +24,17 @@
       <button type="button" id="refresh-btn" class="btn btn-sm" onclick="refreshSprint()">&#8635; Refresh status</button>
       {% if sprint.status not in ('completed', 'failed', 'cancelled') %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/cancel">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Cancel this sprint?')">Cancel</button>
       </form>
       {% endif %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this sprint? This cannot be undone.')">Delete</button>
       </form>
       {% if sprint.status in ('failed', 'cancelled') %}
       <form method="post" action="/dashboard/sprints/{{ sprint.id }}/resubmit" onsubmit="var b=this.querySelector('button');if(b.disabled)return false;b.disabled=true;b.textContent='Resubmitting...';">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="btn btn-sm">Resubmit</button>
       </form>
       {% endif %}
@@ -73,11 +76,12 @@
 </table>
 {% endif %}
 <script>
+var csrfToken='{{ csrf_token }}';
 function refreshSprint(){
   var btn=document.getElementById('refresh-btn');
   btn.innerHTML='<span class="spinning" style="display:inline-block">&#8635;</span> Refreshing...';
   btn.disabled=true;
-  fetch('/dashboard/sprints/{{ sprint.id }}/refresh',{method:'POST',headers:{'Accept':'application/json'}})
+  fetch('/dashboard/sprints/{{ sprint.id }}/refresh',{method:'POST',headers:{'Accept':'application/json','X-CSRF-Token':csrfToken}})
     .then(function(r){return r.json()})
     .then(function(d){
       if(d.status){

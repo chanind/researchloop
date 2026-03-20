@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import tempfile
+import time
 
 from fastapi.testclient import TestClient
 
@@ -16,6 +20,8 @@ from researchloop.core.orchestrator import (
     Orchestrator,
     create_app,
 )
+
+_TEST_SIGNING_SECRET = "test_slack_signing_secret_abc123"
 
 
 def _make_app(
@@ -64,6 +70,39 @@ def _event_payload(
     }
 
 
+def _slack_signature(
+    body: bytes,
+    signing_secret: str = _TEST_SIGNING_SECRET,
+) -> dict[str, str]:
+    """Return headers with a valid Slack signature for *body*."""
+    ts = str(int(time.time()))
+    basestring = f"v0:{ts}:{body.decode('utf-8')}"
+    sig = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode(),
+            basestring.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+    )
+    return {
+        "X-Slack-Request-Timestamp": ts,
+        "X-Slack-Signature": sig,
+    }
+
+
+def _post_signed(
+    client: TestClient,
+    payload: dict,
+    signing_secret: str = _TEST_SIGNING_SECRET,
+):
+    """POST a JSON payload to /api/slack/events with valid Slack signature."""
+    body = json.dumps(payload).encode()
+    headers = _slack_signature(body, signing_secret)
+    headers["Content-Type"] = "application/json"
+    return client.post("/api/slack/events", content=body, headers=headers)
+
+
 class TestUrlVerification:
     def test_challenge(self):
         client, _ = _make_app()
@@ -83,26 +122,28 @@ class TestAllowedUsers:
     def test_allowed_user_gets_response(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             allowed_user_ids=["U_ALLOWED"],
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", user="U_ALLOWED"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", user="U_ALLOWED"),
             )
             assert resp.status_code == 200
 
     def test_unauthorized_user_rejected(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             allowed_user_ids=["U_ALLOWED"],
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", user="U_INTRUDER"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", user="U_INTRUDER"),
             )
             assert resp.status_code == 200
             # The bot responds but with "not authorized"
@@ -112,13 +153,14 @@ class TestAllowedUsers:
     def test_no_restriction_when_empty(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             allowed_user_ids=[],
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", user="U_ANYONE"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", user="U_ANYONE"),
             )
             assert resp.status_code == 200
 
@@ -127,28 +169,30 @@ class TestChannelRestriction:
     def test_allowed_channel(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             channel_id="C_ALLOWED",
             restrict_to_channel=True,
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", channel="C_ALLOWED"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", channel="C_ALLOWED"),
             )
             assert resp.status_code == 200
 
     def test_wrong_channel_ignored(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             channel_id="C_ALLOWED",
             restrict_to_channel=True,
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", channel="C_OTHER"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", channel="C_OTHER"),
             )
             # Should succeed but silently ignore.
             assert resp.status_code == 200
@@ -156,14 +200,15 @@ class TestChannelRestriction:
     def test_dm_always_allowed(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             channel_id="C_ALLOWED",
             restrict_to_channel=True,
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload(
+            resp = _post_signed(
+                client,
+                _event_payload(
                     "help",
                     channel="D_DM_CHANNEL",
                     channel_type="im",
@@ -174,26 +219,30 @@ class TestChannelRestriction:
     def test_no_restriction_when_disabled(self):
         slack = SlackConfig(
             bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
             channel_id="C_ALLOWED",
             restrict_to_channel=False,
         )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help", channel="C_RANDOM"),
+            resp = _post_signed(
+                client,
+                _event_payload("help", channel="C_RANDOM"),
             )
             assert resp.status_code == 200
 
 
 class TestBotMessageIgnored:
     def test_bot_messages_ignored(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json={
+            resp = _post_signed(
+                client,
+                {
                     "type": "event_callback",
                     "event": {
                         "type": "message",
@@ -209,33 +258,33 @@ class TestBotMessageIgnored:
 
 class TestCommandRouting:
     def test_help_command(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("help"),
-            )
+            resp = _post_signed(client, _event_payload("help"))
             assert resp.status_code == 200
 
     def test_auth_status_command(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("auth status"),
-            )
+            resp = _post_signed(client, _event_payload("auth status"))
             assert resp.status_code == 200
 
     def test_sprint_list_command(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("sprint list"),
-            )
+            resp = _post_signed(client, _event_payload("sprint list"))
             assert resp.status_code == 200
 
     def test_non_event_callback_ignored(self):
@@ -252,22 +301,28 @@ class TestSprintRunRouting:
     """Verify 'sprint run' returns 200 (processed in background)."""
 
     def test_sprint_run_returns_ok(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("sprint run test my idea"),
+            resp = _post_signed(
+                client,
+                _event_payload("sprint run test my idea"),
             )
             assert resp.status_code == 200
 
     def test_sprint_run_missing_idea_no_crash(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
         client, _ = _make_app(slack=slack)
         with client:
-            resp = client.post(
-                "/api/slack/events",
-                json=_event_payload("sprint run test"),
+            resp = _post_signed(
+                client,
+                _event_payload("sprint run test"),
             )
             assert resp.status_code == 200
 
@@ -276,14 +331,49 @@ class TestHelpResponse:
     """Verify help returns 200 (processed in background)."""
 
     def test_help_returns_ok(self):
-        slack = SlackConfig(bot_token="xoxb-test")
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
+        client, _ = _make_app(slack=slack)
+        with client:
+            resp = _post_signed(client, _event_payload("help"))
+            assert resp.status_code == 200
+
+
+class TestSigningSecretRequired:
+    """Slack events are rejected when bot_token is set but signing_secret is missing."""
+
+    def test_missing_signing_secret_returns_500(self):
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret="",  # intentionally empty
+        )
         client, _ = _make_app(slack=slack)
         with client:
             resp = client.post(
                 "/api/slack/events",
                 json=_event_payload("help"),
             )
-            assert resp.status_code == 200
+            assert resp.status_code == 500
+            assert "signing_secret" in resp.json()["detail"]
+
+    def test_invalid_signature_returns_403(self):
+        slack = SlackConfig(
+            bot_token="xoxb-test",
+            signing_secret=_TEST_SIGNING_SECRET,
+        )
+        client, _ = _make_app(slack=slack)
+        with client:
+            resp = client.post(
+                "/api/slack/events",
+                json=_event_payload("help"),
+                headers={
+                    "X-Slack-Request-Timestamp": str(int(time.time())),
+                    "X-Slack-Signature": "v0=invalidsig",
+                },
+            )
+            assert resp.status_code == 403
 
 
 class TestConfigParsing:

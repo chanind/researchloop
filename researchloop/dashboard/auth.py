@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 
 import bcrypt
@@ -25,6 +27,19 @@ def hash_password(password: str) -> str:
         password.encode("utf-8"),
         bcrypt.gensalt(),
     ).decode("utf-8")
+
+
+def generate_csrf_token(session_token: str, secret: str) -> str:
+    """Derive a CSRF token from the session token and signing secret."""
+    return hmac.new(
+        secret.encode(), session_token.encode(), hashlib.sha256
+    ).hexdigest()[:32]
+
+
+def verify_csrf_token(session_token: str, secret: str, token: str) -> bool:
+    """Verify that *token* matches the expected CSRF token."""
+    expected = generate_csrf_token(session_token, secret)
+    return hmac.compare_digest(expected, token)
 
 
 class SessionManager:
