@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ loop.id }} — ResearchLoop{% endblock %}
+{% block head %}
+{% if loop.status in ('running', 'pending') %}
+<script>setTimeout(function(){window.location.reload()},30000);</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <h2>Loop {{ loop.id }}</h2>
 <div class="card">
@@ -30,15 +35,20 @@
 {% endif %}
 <h3>Sprints</h3>
 <table>
-  <thead><tr><th>ID</th><th>Status</th><th>Idea</th><th>Summary</th><th>Created</th></tr></thead>
+  <thead><tr><th>ID</th><th>Status</th><th>Idea</th><th>Summary</th><th>Created</th><th></th></tr></thead>
   <tbody>
   {% for sp in sprints %}
     <tr>
       <td><a href="/dashboard/sprints/{{ sp.id }}">{{ sp.id }}</a></td>
       <td><span class="badge badge-{{ sp.status.split(' ')[0] }}">{{ sp.status.split(' ')[0] }}</span>{% if '(' in sp.status %} <span class="dim" style="font-size:0.75rem">{{ sp.status.split('(')[1].rstrip(')') }}</span>{% endif %}</td>
-      <td>{% if sp.idea %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}{% else %}<span class="dim" style="font-style:italic">auto-generating...</span>{% endif %}</td>
+      <td>{% if sp.idea %}{{ sp.idea[:60] }}{% if sp.idea|length > 60 %}…{% endif %}{% elif sp.status not in ('completed', 'failed', 'cancelled') %}<span class="dim" style="font-style:italic">auto-generating...</span>{% elif sp.summary %}<span class="dim">{{ sp.summary[:60] }}{% if sp.summary|length > 60 %}…{% endif %}</span>{% endif %}</td>
       <td class="dim">{{ (sp.summary or '')[:80] }}{% if (sp.summary or '')|length > 80 %}…{% endif %}</td>
       <td class="dim">{{ sp.created_at }}</td>
+      <td>
+        {% if sp.status.startswith('running') or sp.status == 'submitted' %}
+        <button type="button" class="refresh-btn" title="Refresh status" onclick="event.stopPropagation();var b=this;b.innerHTML='<span class=spinning>&#8635;</span>';fetch('/dashboard/sprints/{{ sp.id }}/refresh',{method:'POST',redirect:'manual'}).then(function(){b.innerHTML='&#10003;';b.style.color='#86efac';setTimeout(function(){b.innerHTML='&#8635;';b.style.color='';},2000)})">&#8635;</button>
+        {% endif %}
+      </td>
     </tr>
   {% endfor %}
   </tbody>
