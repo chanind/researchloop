@@ -338,8 +338,15 @@ async def _get_ssh_and_sprint_path(
     sprint_id: str,
     db: Database,
     config: Config,
+    wait_for_job: bool = False,
 ) -> tuple[SSHManager, object, str]:
-    """Get SSH conn + sprint path on cluster."""
+    """Get SSH conn + sprint path on cluster.
+
+    If *wait_for_job* is True, poll until the SLURM job finishes
+    so test file writes aren't overwritten by mock claude.
+    """
+    import re
+
     cluster = config.clusters[0]
     ssh_mgr = SSHManager()
     conn = await ssh_mgr.get_connection(
@@ -354,6 +361,16 @@ async def _get_ssh_and_sprint_path(
     assert row is not None
     base = config.studies[0].sprints_dir
     sprint_path = f"{base}/{row['directory']}"
+
+    if wait_for_job and row.get("job_id"):
+        for _ in range(30):
+            stdout, _, _ = await conn.run(
+                f"scontrol show job {row['job_id']} -o 2>/dev/null"
+            )
+            if re.search(r"JobState=(COMPLETED|FAILED|CANCELLED)", stdout):
+                break
+            await asyncio.sleep(1)
+
     return ssh_mgr, conn, sprint_path
 
 
@@ -404,7 +421,10 @@ class TestDashboardRefreshSLURM:
         await sprint_manager.submit_sprint(sprint.id)
 
         ssh_mgr, conn, sprint_path = await _get_ssh_and_sprint_path(
-            sprint.id, integration_db_with_study, integration_config
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
         )
         try:
             await conn.run(
@@ -432,7 +452,10 @@ class TestDashboardRefreshSLURM:
         await sprint_manager.submit_sprint(sprint.id)
 
         ssh_mgr, conn, sprint_path = await _get_ssh_and_sprint_path(
-            sprint.id, integration_db_with_study, integration_config
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
         )
         try:
             await conn.run(
@@ -460,7 +483,10 @@ class TestDashboardRefreshSLURM:
         await sprint_manager.submit_sprint(sprint.id)
 
         ssh_mgr, conn, sprint_path = await _get_ssh_and_sprint_path(
-            sprint.id, integration_db_with_study, integration_config
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
         )
         try:
             await conn.run(
@@ -517,22 +543,13 @@ class TestDashboardRefreshSLURM:
         )
         await sprint_manager.submit_sprint(sprint.id)
 
-        row = await queries.get_sprint(integration_db_with_study, sprint.id)
-        assert row is not None
         ssh_mgr, conn, sprint_path = await _get_ssh_and_sprint_path(
-            sprint.id, integration_db_with_study, integration_config
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
         )
         try:
-            # Wait for the job to complete so mock claude doesn't
-            # overwrite our progress.md.
-            for _ in range(30):
-                stdout, _, _ = await conn.run(
-                    f"scontrol show job {row['job_id']} -o 2>/dev/null"
-                )
-                if "COMPLETED" in stdout or "FAILED" in stdout:
-                    break
-                await asyncio.sleep(1)
-
             await conn.run(
                 f"printf '## Research Progress\\n"
                 f"- Step 1 complete' > "
