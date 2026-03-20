@@ -13,6 +13,68 @@ if TYPE_CHECKING:
     from .database import Database
 
 # ---------------------------------------------------------------------------
+# Column whitelists — prevent SQL injection via dynamic column names
+# ---------------------------------------------------------------------------
+
+_STUDY_COLUMNS: frozenset[str] = frozenset(
+    {
+        "name",
+        "cluster",
+        "description",
+        "claude_md_path",
+        "sprints_dir",
+        "created_at",
+        "config_json",
+    }
+)
+
+_SPRINT_COLUMNS: frozenset[str] = frozenset(
+    {
+        "id",
+        "study_name",
+        "idea",
+        "status",
+        "job_id",
+        "directory",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "error",
+        "summary",
+        "session_id",
+        "webhook_token",
+        "loop_id",
+        "metadata_json",
+    }
+)
+
+_AUTO_LOOP_COLUMNS: frozenset[str] = frozenset(
+    {
+        "id",
+        "study_name",
+        "total_count",
+        "completed_count",
+        "current_sprint_id",
+        "status",
+        "created_at",
+        "stopped_at",
+        "metadata_json",
+    }
+)
+
+
+def _validate_columns(
+    kwargs: dict[str, Any], allowed: frozenset[str], entity: str
+) -> None:
+    """Raise ValueError if any key in *kwargs* is not in *allowed*."""
+    invalid = set(kwargs.keys()) - allowed
+    if invalid:
+        raise ValueError(
+            f"Invalid column(s) for {entity}: {', '.join(sorted(invalid))}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Studies
 # ---------------------------------------------------------------------------
 
@@ -53,6 +115,7 @@ async def update_study(db: Database, name: str, **kwargs: Any) -> dict[str, Any]
     """Update arbitrary columns on a study.  Returns the updated row."""
     if not kwargs:
         return await get_study(db, name)
+    _validate_columns(kwargs, _STUDY_COLUMNS, "study")
     columns = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values())
     values.append(name)
@@ -124,6 +187,7 @@ async def update_sprint(db: Database, id: str, **kwargs: Any) -> dict[str, Any] 
     """Update arbitrary columns on a sprint.  Returns the updated row."""
     if not kwargs:
         return await get_sprint(db, id)
+    _validate_columns(kwargs, _SPRINT_COLUMNS, "sprint")
     columns = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values())
     values.append(id)
@@ -197,6 +261,7 @@ async def update_auto_loop(
     """Update arbitrary columns on an auto-loop.  Returns the updated row."""
     if not kwargs:
         return await get_auto_loop(db, id)
+    _validate_columns(kwargs, _AUTO_LOOP_COLUMNS, "auto_loop")
     columns = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values())
     values.append(id)

@@ -356,7 +356,13 @@ def add_dashboard_routes(
         """Download the sprint's PDF report."""
         if redir := await _gate(request):
             return redir
-        pdf_path = Path(orchestrator.config.artifact_dir) / sprint_id / "report.pdf"
+        artifact_dir = Path(orchestrator.config.artifact_dir).resolve()
+        pdf_path = (artifact_dir / sprint_id / "report.pdf").resolve()
+        if not str(pdf_path).startswith(str(artifact_dir) + "/"):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: path traversal detected",
+            )
         if not pdf_path.exists():
             raise HTTPException(
                 status_code=404,
@@ -846,7 +852,17 @@ def add_dashboard_routes(
         if artifact is None:
             raise HTTPException(status_code=404, detail="Artifact not found")
 
-        file_path = Path(artifact["path"])
+        file_path = Path(artifact["path"]).resolve()
+        artifact_dir = Path(orchestrator.config.artifact_dir).resolve()
+        if (
+            not str(file_path).startswith(str(artifact_dir) + "/")
+            and file_path != artifact_dir
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: path traversal detected",
+            )
+
         if not file_path.exists():
             raise HTTPException(
                 status_code=404,

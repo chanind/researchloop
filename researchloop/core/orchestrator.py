@@ -547,6 +547,7 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     ) -> JSONResponse:
         """List sprints, optionally filtered by study name."""
         await _check_auth(x_shared_secret, authorization)
+        limit = min(max(1, limit), 1000)
         assert orchestrator.sprint_manager is not None
         sprints = await orchestrator.sprint_manager.list_sprints(
             study_name=study_name, limit=limit
