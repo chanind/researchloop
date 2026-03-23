@@ -68,7 +68,7 @@ class TestSGEScheduler:
         )
         with pytest.raises(
             RuntimeError,
-            match="Could not parse job ID",
+            match="qsub failed",
         ):
             await self.scheduler.submit(
                 self.ssh,

@@ -41,14 +41,13 @@ class SGEScheduler(BaseScheduler):
         stdout, stderr, rc = await ssh.run(  # type: ignore[attr-defined]
             submit_cmd, timeout=60
         )
-        if rc != 0:
-            raise RuntimeError(f"qsub failed (exit {rc}): {stderr}")
-
-        # Parse job ID from
-        # "Your job XXXXX ("name") has been submitted"
-        match = re.search(r"Your job\s+(\d+)", stdout)
+        # qsub may return exit code 1 with warnings but still submit
+        # the job (e.g., "root's job is not allowed to run in any queue").
+        # Check both stdout and stderr for the job ID.
+        combined = f"{stdout}\n{stderr}"
+        match = re.search(r"Your job\s+(\d+)", combined)
         if not match:
-            raise RuntimeError(f"Could not parse job ID from qsub: {stdout!r}")
+            raise RuntimeError(f"qsub failed (exit {rc}): {stderr or stdout}")
 
         job_id = match.group(1)
         logger.info(

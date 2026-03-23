@@ -18,6 +18,7 @@ from researchloop.sprints.manager import SprintManager
 
 # Paths.
 _DOCKER_DIR = Path(__file__).resolve().parent.parent / "docker" / "slurm"
+_SGE_DOCKER_DIR = Path(__file__).resolve().parent.parent / "docker" / "sge"
 _IMAGE_NAME = os.environ.get("SLURM_TEST_IMAGE", "researchloop-slurm-test")
 
 
@@ -286,3 +287,99 @@ async def sprint_manager(
     )
     yield mgr
     await ssh_mgr.close_all()
+
+
+# ==================================================================
+# SGE container and fixtures
+# ==================================================================
+
+_SGE_IMAGE_NAME = os.environ.get("SGE_TEST_IMAGE", "researchloop-sge-test")
+
+
+@pytest.fixture(scope="session")
+def sge_container(
+    ssh_key_pair: tuple[Path, Path],
+) -> Iterator[dict[str, object]]:
+    """Build and run the SGE Docker container."""
+    _priv_key, pub_key = ssh_key_pair
+
+    subprocess.run(
+        [
+            "docker",
+            "build",
+            "--platform",
+            "linux/amd64",
+            "-t",
+            _SGE_IMAGE_NAME,
+            str(_SGE_DOCKER_DIR),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    ssh_port = _find_free_port()
+
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "-p",
+            f"{ssh_port}:22",
+            "-v",
+            f"{pub_key}:/tmp/test_key.pub:ro",
+            "--add-host=host.docker.internal:host-gateway",
+            _SGE_IMAGE_NAME,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    container_id = result.stdout.strip()
+
+    try:
+        _wait_for_port("localhost", ssh_port, timeout=90)
+        time.sleep(5)  # SGE init takes longer than SLURM
+        _wait_for_ssh(
+            "localhost",
+            ssh_port,
+            str(ssh_key_pair[0]),
+            timeout=60,
+        )
+        yield {
+            "host": "localhost",
+            "ssh_port": ssh_port,
+            "container_id": container_id,
+        }
+    finally:
+        logs = subprocess.run(
+            ["docker", "logs", container_id],
+            capture_output=True,
+            text=True,
+        )
+        if logs.stdout:
+            print(f"SGE container logs:\n{logs.stdout[-500:]}")
+        subprocess.run(
+            ["docker", "stop", container_id],
+            capture_output=True,
+        )
+
+
+@pytest.fixture(scope="session")
+def sge_cluster_config(
+    sge_container: dict[str, object],
+    ssh_key_pair: tuple[Path, Path],
+) -> ClusterConfig:
+    """ClusterConfig pointing at the Docker SGE container."""
+    return ClusterConfig(
+        name="test-sge",
+        host=str(sge_container["host"]),
+        port=int(sge_container["ssh_port"]),  # type: ignore[arg-type]
+        user="sgeuser",
+        key_path=str(ssh_key_pair[0]),
+        scheduler_type="sge",
+        working_dir="/tmp/researchloop",
+    )
