@@ -265,6 +265,13 @@ class ConversationManager:
                     except (json.JSONDecodeError, TypeError):
                         pass
 
+        # Send a "thinking" indicator so the user knows the bot is working.
+        if bot_token and channel:
+            from researchloop.comms.slack import SlackNotifier
+
+            _thinking_notifier = SlackNotifier(bot_token=bot_token, channel_id=channel)
+            await _thinking_notifier._post_message("_Thinking..._", thread_ts=thread_ts)
+
         # Run Claude with restricted tools — web only.
         cmd = [
             "claude",
@@ -285,7 +292,7 @@ class ConversationManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
         except asyncio.TimeoutError:
             return "Sorry, the request timed out."
         except FileNotFoundError:
