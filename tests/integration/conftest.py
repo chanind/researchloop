@@ -341,13 +341,13 @@ def sge_container(
     container_id = result.stdout.strip()
 
     try:
-        _wait_for_port("localhost", ssh_port, timeout=120)
+        _wait_for_port("localhost", ssh_port, timeout=180)
         time.sleep(10)  # SGE install + init takes longer than SLURM
         _wait_for_ssh(
             "localhost",
             ssh_port,
             str(ssh_key_pair[0]),
-            timeout=90,
+            timeout=120,
         )
         yield {
             "host": "localhost",
@@ -361,7 +361,9 @@ def sge_container(
             text=True,
         )
         if logs.stdout:
-            print(f"SGE container logs:\n{logs.stdout[-500:]}")
+            print(f"SGE container logs:\n{logs.stdout[-1000:]}")
+        if logs.stderr:
+            print(f"SGE container stderr:\n{logs.stderr[-500:]}")
         subprocess.run(
             ["docker", "stop", container_id],
             capture_output=True,
