@@ -366,15 +366,23 @@ def add_dashboard_routes(
 
         artifacts = await queries.list_artifacts(orchestrator.db, sprint_id)
 
-        # Extract report and has_pdf from metadata_json.
+        # Extract structured data from metadata_json.
         report = None
         has_pdf = False
+        findings = None
+        red_team = None
+        fixes = None
+        progress = None
         meta = sprint.get("metadata_json")
         if meta:
             try:
                 md = json.loads(meta)
                 report = md.get("report")
                 has_pdf = md.get("has_pdf", False)
+                findings = md.get("findings")
+                red_team = md.get("red_team")
+                fixes = md.get("fixes")
+                progress = md.get("progress")
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -387,6 +395,10 @@ def add_dashboard_routes(
                 artifacts=artifacts,
                 report=report,
                 has_pdf=has_pdf,
+                findings=findings,
+                red_team=red_team,
+                fixes=fixes,
+                progress=progress,
             ),
         )
 
@@ -550,7 +562,8 @@ def add_dashboard_routes(
                             f"cat {sprint_path}/idea.txt 2>/dev/null || true"
                         )
 
-                        # Read findings.md, progress.md, and output.log.
+                        # Read findings.md, progress.md, output.log,
+                        # and red-team/fix files.
                         findings_out, _, _ = await ssh.run(
                             f"cat {sprint_path}/findings.md 2>/dev/null || true"
                         )
@@ -559,6 +572,12 @@ def add_dashboard_routes(
                         )
                         output_log_out, _, _ = await ssh.run(
                             f"tail -50 {sprint_path}/output.log 2>/dev/null || true"
+                        )
+                        red_team_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/red_team_round_1.md 2>/dev/null || true"
+                        )
+                        fixes_out, _, _ = await ssh.run(
+                            f"cat {sprint_path}/fixes_round_1.md 2>/dev/null || true"
                         )
 
                         # Build update dict.
@@ -611,6 +630,14 @@ def add_dashboard_routes(
                             meta_dict["report"] = findings_out.strip()
                         if has_pdf:
                             meta_dict["has_pdf"] = True
+                        if findings_out.strip():
+                            meta_dict["findings"] = findings_out.strip()
+                        if red_team_out.strip():
+                            meta_dict["red_team"] = red_team_out.strip()
+                        if fixes_out.strip():
+                            meta_dict["fixes"] = fixes_out.strip()
+                        if progress_out.strip():
+                            meta_dict["progress"] = progress_out.strip()
                         if meta_dict:
                             update_kw["metadata_json"] = json.dumps(meta_dict)
                         if update_kw:

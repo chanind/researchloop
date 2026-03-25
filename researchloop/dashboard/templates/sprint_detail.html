@@ -47,18 +47,44 @@
     {% endif %}
   </div>
 </div>
+
 {% if sprint.summary %}
 <h3>Summary</h3>
 <div class="card" id="summary-section"><p>{{ sprint.summary }}</p></div>
 {% endif %}
+
+{% if progress %}
+<h3>Progress</h3>
+<div class="card report-content">{{ progress|markdown|safe }}</div>
+{% endif %}
+
 {% if report %}
 <h3>Report</h3>
 <div class="card report-content">{{ report|markdown|safe }}</div>
 {% endif %}
+
+{% if findings %}
+<h3>Findings</h3>
+<div class="card report-content">{{ findings|markdown|safe }}</div>
+{% endif %}
+
+{% if red_team %}
+<h3>Red-Team Review</h3>
+<div class="card report-content">{{ red_team|markdown|safe }}</div>
+{% endif %}
+
+{% if fixes %}
+<h3>Fixes</h3>
+<div class="card report-content">{{ fixes|markdown|safe }}</div>
+{% endif %}
+
 {% if sprint.error %}
 <h3>Log</h3>
-<div class="card"><pre style="white-space: pre-wrap; word-wrap: break-word; color: #94a3b8;">{{ sprint.error }}</pre></div>
+<div class="card">
+  <pre style="white-space: pre-wrap; word-wrap: break-word; color: #94a3b8; max-height: 400px; overflow-y: auto;">{{ sprint.error }}</pre>
+</div>
 {% endif %}
+
 {% if artifacts %}
 <h3>Artifacts</h3>
 <table>
