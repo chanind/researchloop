@@ -1,6 +1,9 @@
 #!/bin/bash
 # Don't use set -e — we want sshd to start even if SGE setup partially fails.
 
+# Create a non-root user for SGE job submission FIRST.
+id sgeuser >/dev/null 2>&1 || useradd -m -s /bin/bash sgeuser
+
 # Install SSH public key if mounted.
 if [ -f /tmp/test_key.pub ]; then
     for homedir in /root /home/sgeuser; do
@@ -9,14 +12,11 @@ if [ -f /tmp/test_key.pub ]; then
         chmod 700 "$homedir/.ssh"
         chmod 600 "$homedir/.ssh/authorized_keys"
     done
-    chown -R sgeuser:sgeuser /home/sgeuser/.ssh 2>/dev/null || true
+    chown -R sgeuser:sgeuser /home/sgeuser/.ssh
 fi
 
 # Generate SSH host keys if missing.
 ssh-keygen -A 2>/dev/null || true
-
-# Create a non-root user for SGE job submission.
-id sgeuser >/dev/null 2>&1 || useradd -m -s /bin/bash sgeuser
 
 # Run the original SGE boot script. It does:
 # 1. inst_sge (install SGE master + exec)
