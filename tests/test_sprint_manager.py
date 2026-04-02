@@ -1,5 +1,6 @@
 """Tests for researchloop.sprints.manager."""
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,7 @@ from researchloop.core.config import (
 from researchloop.core.models import SprintStatus
 from researchloop.db import queries
 from researchloop.sprints.manager import SprintManager
+from researchloop.studies.manager import StudyManager
 
 
 class TestSprintManagerCreate:
@@ -226,6 +228,80 @@ class TestSprintManagerCompletion:
         err = kwargs.get("error") or (args[2] if len(args) > 2 else "")
         assert sid == sprint.id
         assert "cancelled" in err.lower()
+
+    async def test_handle_completion_fetches_results(
+        self, db_with_study, sample_config
+    ):
+        """Completion should fetch result files from cluster into metadata_json."""
+        ssh_mock = AsyncMock()
+
+        # Mock SSH run to return result files.
+        async def fake_run(cmd: str) -> tuple[str, str, int]:
+            if "report.md" in cmd:
+                return ("# Final Report\nGreat findings", "", 0)
+            if "findings.md" in cmd:
+                return ("## Key Findings\nFound X", "", 0)
+            if "progress.md" in cmd:
+                return ("Step 1 done", "", 0)
+            if "red_team_round_1.md" in cmd:
+                return ("## Issues\nNone critical", "", 0)
+            if "fixes_round_1.md" in cmd:
+                return ("No fixes needed", "", 0)
+            if "test -f" in cmd and "report.pdf" in cmd:
+                return ("", "", 1)  # No PDF
+            if "idea.txt" in cmd:
+                return ("", "", 1)
+            return ("", "", 0)
+
+        ssh_mock.run = AsyncMock(side_effect=fake_run)
+
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+
+        study_mgr = StudyManager(db_with_study, sample_config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=ssh_mgr,
+            schedulers={},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.handle_completion(
+            sprint.id, status="completed", summary="Done!"
+        )
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["status"] == "completed"
+        assert row["metadata_json"] is not None
+        meta = json.loads(row["metadata_json"])
+        assert "# Final Report" in meta["report"]
+        assert "Key Findings" in meta["findings"]
+        assert "Step 1 done" in meta["progress"]
+        assert "Issues" in meta["red_team"]
+        assert "No fixes needed" in meta["fixes"]
+        assert meta.get("has_pdf") is not True
+
+    async def test_handle_completion_no_study_manager_skips_fetch(
+        self, db_with_study, sample_config
+    ):
+        """Without study_manager, results fetch is gracefully skipped."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+            study_manager=None,
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await mgr.handle_completion(
+            sprint.id, status="completed", summary="Done!"
+        )
+
+        row = await queries.get_sprint(db_with_study, sprint.id)
+        assert row["status"] == "completed"
+        assert row["metadata_json"] is None
 
     async def test_handle_completion_with_notifier(self, db_with_study, sample_config):
         from researchloop.comms.router import NotificationRouter

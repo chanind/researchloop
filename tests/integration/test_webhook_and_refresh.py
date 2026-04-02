@@ -569,6 +569,100 @@ class TestDashboardRefreshSLURM:
 
 
 # ======================================================================
+# 3b. Webhook Completion Fetches Results from Cluster
+# ======================================================================
+
+
+@pytest.mark.integration
+class TestWebhookCompletionFetchesResults:
+    """Verify that handle_completion fetches result files from the cluster."""
+
+    async def test_completion_fetches_report(
+        self,
+        integration_db_with_study: Database,
+        integration_config: Config,
+        sprint_manager: SprintManager,
+    ) -> None:
+        """Write result files on cluster, then call handle_completion.
+
+        The report/findings/progress should be stored in metadata_json
+        without needing a manual dashboard refresh.
+        """
+        sprint = await sprint_manager.create_sprint(
+            "integration-study", "fetch-results test"
+        )
+        await sprint_manager.submit_sprint(sprint.id)
+
+        ssh_mgr, conn, sprint_path = await _get_ssh_and_sprint_path(
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
+        )
+        try:
+            # Write result files as the runner would.
+            await conn.run(
+                f"printf '# Final Report\\nDetailed findings here' "
+                f"> {sprint_path}/report.md"
+            )
+            await conn.run(
+                f"printf '## Findings\\nFound X and Y' "
+                f"> {sprint_path}/findings.md"
+            )
+            await conn.run(
+                f"printf '## Progress\\n- All steps done' "
+                f"> {sprint_path}/progress.md"
+            )
+
+            # Simulate webhook calling handle_completion.
+            await sprint_manager.handle_completion(
+                sprint.id, status="completed", summary="All done"
+            )
+
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
+            assert row is not None
+            assert row["status"] == "completed"
+            assert row["metadata_json"] is not None
+
+            meta = json.loads(row["metadata_json"])
+            assert "Final Report" in meta.get("report", "")
+            assert "Findings" in meta.get("findings", "")
+            assert "All steps done" in meta.get("progress", "")
+        finally:
+            await ssh_mgr.close_all()
+
+    async def test_completion_without_files_still_succeeds(
+        self,
+        integration_db_with_study: Database,
+        integration_config: Config,
+        sprint_manager: SprintManager,
+    ) -> None:
+        """handle_completion succeeds even if no result files exist yet."""
+        sprint = await sprint_manager.create_sprint(
+            "integration-study", "no-files test"
+        )
+        await sprint_manager.submit_sprint(sprint.id)
+
+        ssh_mgr, _conn, _sprint_path = await _get_ssh_and_sprint_path(
+            sprint.id,
+            integration_db_with_study,
+            integration_config,
+            wait_for_job=True,
+        )
+        try:
+            await sprint_manager.handle_completion(
+                sprint.id, status="failed", error="OOM"
+            )
+
+            row = await queries.get_sprint(integration_db_with_study, sprint.id)
+            assert row is not None
+            assert row["status"] == "failed"
+            assert row["error"] == "OOM"
+        finally:
+            await ssh_mgr.close_all()
+
+
+# ======================================================================
 # 4. Notification Routing
 # ======================================================================
 

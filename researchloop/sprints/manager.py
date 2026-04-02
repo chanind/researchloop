@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import jinja2
 
 if TYPE_CHECKING:
-    from researchloop.clusters.ssh import SSHManager
+    from researchloop.clusters.ssh import SSHConnection, SSHManager
     from researchloop.comms.router import NotificationRouter
     from researchloop.core.config import Config
     from researchloop.db.database import Database
@@ -619,6 +619,10 @@ class SprintManager:
         sprint = await queries.get_sprint(self.db, sprint_id)
         study_name = sprint["study_name"] if sprint else "unknown"
 
+        # Fetch result files from the cluster into metadata_json.
+        if sprint:
+            await self._fetch_results(sprint)
+
         # Create an event record.
         event_data = json.dumps(
             {
@@ -664,30 +668,13 @@ class SprintManager:
     async def _fetch_idea(self, sprint: dict) -> str | None:
         """Try to read idea.txt from the cluster for auto-loop sprints."""
         try:
-            study_name = sprint["study_name"]
-            if self.study_manager is None:
+            resolved = await self._resolve_sprint_remote(sprint)
+            if resolved is None:
                 return None
-            cluster_cfg = await self.study_manager.get_cluster_config(study_name)
-            study_cfg = None
-            for s in self.config.studies:
-                if s.name == study_name:
-                    study_cfg = s
-                    break
-            if study_cfg and study_cfg.sprints_dir:
-                sbase = study_cfg.sprints_dir
-            else:
-                sbase = f"{cluster_cfg.working_dir}/{study_name}"
-            sp_dir = sprint.get("directory", "")
-            remote_idea = f"{sbase}/{sp_dir}/idea.txt"
-
-            conn = {
-                "host": cluster_cfg.host,
-                "port": cluster_cfg.port,
-                "user": cluster_cfg.user,
-                "key_path": cluster_cfg.key_path,
-            }
-            ssh = await self.ssh_manager.get_connection(conn)
-            stdout, _, rc = await ssh.run(f"cat {remote_idea} 2>/dev/null")
+            ssh, sprint_path = resolved
+            stdout, _, rc = await ssh.run(
+                f"cat {sprint_path}/idea.txt 2>/dev/null"
+            )
             if rc == 0 and stdout.strip():
                 return stdout.strip()
             return None
@@ -695,15 +682,18 @@ class SprintManager:
             logger.debug("Idea fetch failed for %s", sprint.get("id"), exc_info=True)
             return None
 
-    async def _fetch_pdf(self, sprint: dict) -> str | None:
-        """Try to download report.pdf from the cluster."""
+    async def _resolve_sprint_remote(
+        self, sprint: dict
+    ) -> tuple[SSHConnection, str] | None:
+        """Resolve SSH connection and remote sprint path.
+
+        Returns ``(ssh, sprint_path)`` or ``None`` if resolution fails.
+        """
         try:
             study_name = sprint["study_name"]
             if self.study_manager is None:
-                logger.warning("PDF fetch: no study_manager")
                 return None
             cluster_cfg = await self.study_manager.get_cluster_config(study_name)
-            # Resolve sprint path.
             study_cfg = None
             for s in self.config.studies:
                 if s.name == study_name:
@@ -714,7 +704,7 @@ class SprintManager:
             else:
                 sbase = f"{cluster_cfg.working_dir}/{study_name}"
             sp_dir = sprint.get("directory", "")
-            remote_pdf = f"{sbase}/{sp_dir}/report.pdf"
+            sprint_path = f"{sbase}/{sp_dir}"
 
             conn = {
                 "host": cluster_cfg.host,
@@ -723,6 +713,24 @@ class SprintManager:
                 "key_path": cluster_cfg.key_path,
             }
             ssh = await self.ssh_manager.get_connection(conn)
+            return ssh, sprint_path
+        except Exception:
+            logger.debug(
+                "Failed to resolve sprint remote for %s",
+                sprint.get("id"),
+                exc_info=True,
+            )
+            return None
+
+    async def _fetch_pdf(self, sprint: dict) -> str | None:
+        """Try to download report.pdf from the cluster."""
+        try:
+            resolved = await self._resolve_sprint_remote(sprint)
+            if resolved is None:
+                logger.warning("PDF fetch: cannot resolve remote for %s", sprint["id"])
+                return None
+            ssh, sprint_path = resolved
+            remote_pdf = f"{sprint_path}/report.pdf"
 
             # Check if PDF exists.
             _, _, rc = await ssh.run(f"test -f {remote_pdf}")
@@ -748,3 +756,62 @@ class SprintManager:
                 exc_info=True,
             )
             return None
+
+    async def _fetch_results(self, sprint: dict) -> None:
+        """Fetch result files from the cluster and store in metadata_json."""
+        resolved = await self._resolve_sprint_remote(sprint)
+        if resolved is None:
+            return
+        ssh, sprint_path = resolved
+        sprint_id = sprint["id"]
+
+        try:
+            # Read all result files in parallel-ish (sequential but fast).
+            report_out, _, _ = await ssh.run(
+                f"cat {sprint_path}/report.md 2>/dev/null || true"
+            )
+            findings_out, _, _ = await ssh.run(
+                f"cat {sprint_path}/findings.md 2>/dev/null || true"
+            )
+            progress_out, _, _ = await ssh.run(
+                f"cat {sprint_path}/progress.md 2>/dev/null || true"
+            )
+            red_team_out, _, _ = await ssh.run(
+                f"cat {sprint_path}/red_team_round_1.md 2>/dev/null || true"
+            )
+            fixes_out, _, _ = await ssh.run(
+                f"cat {sprint_path}/fixes_round_1.md 2>/dev/null || true"
+            )
+
+            meta_dict: dict[str, object] = {}
+            if report_out.strip():
+                meta_dict["report"] = report_out.strip()
+            elif findings_out.strip():
+                meta_dict["report"] = findings_out.strip()
+            if findings_out.strip():
+                meta_dict["findings"] = findings_out.strip()
+            if red_team_out.strip():
+                meta_dict["red_team"] = red_team_out.strip()
+            if fixes_out.strip():
+                meta_dict["fixes"] = fixes_out.strip()
+            if progress_out.strip():
+                meta_dict["progress"] = progress_out.strip()
+
+            # Check for PDF existence (actual download handled by _fetch_pdf).
+            _, _, pdf_rc = await ssh.run(f"test -f {sprint_path}/report.pdf")
+            if pdf_rc == 0:
+                meta_dict["has_pdf"] = True
+
+            if meta_dict:
+                await queries.update_sprint(
+                    self.db,
+                    sprint_id,
+                    metadata_json=json.dumps(meta_dict),
+                )
+                logger.info("Fetched results for sprint %s", sprint_id)
+        except Exception:
+            logger.warning(
+                "Result fetch failed for %s",
+                sprint_id,
+                exc_info=True,
+            )
