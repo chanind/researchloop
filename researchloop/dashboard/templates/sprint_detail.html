@@ -129,16 +129,18 @@ function refreshSprint(){
         var s=d.status.split(' ')[0];
         document.getElementById('sprint-status').innerHTML='<span class="badge badge-'+s+'">'+d.status+'</span>';
       }
-      if(d.idea){document.getElementById('sprint-idea').textContent=d.idea;}
-      if(d.summary){
-        var sec=document.getElementById('summary-section');
-        if(sec){sec.querySelector('p').textContent=d.summary;}
+      if(d.idea){
+        var t=d.idea.length>120?d.idea.substring(0,120)+'\u2026':d.idea;
+        document.getElementById('sprint-idea').textContent=t;
       }
       if(d.completed_at){document.getElementById('sprint-completed').textContent=d.completed_at;}
       btn.innerHTML='&#10003; Updated';btn.style.color='#86efac';
       setTimeout(function(){btn.innerHTML='&#8635; Refresh status';btn.style.color='';btn.disabled=false;},2000);
       if(d.status && (d.status.startsWith('running') || d.status==='submitted')){
         setTimeout(function(){refreshSprint()},30000);
+      } else {
+        // Terminal or changed state — reload to get rendered markdown sections
+        setTimeout(function(){window.location.reload();},2000);
       }
     })
     .catch(function(){
