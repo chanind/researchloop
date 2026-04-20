@@ -260,6 +260,48 @@ class TestSprintsPage:
             assert resp.status_code == 200
             assert "sp-dash01" in resp.text
 
+    async def test_new_sprint_form_defaults_to_last_submitted_study(self):
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            # Add a second study so there's more than one option.
+            await queries.create_study(
+                orch.db,
+                name="other",
+                cluster="local",
+                description=None,
+                claude_md_path=None,
+                sprints_dir="./sp-other",
+            )
+            # Most recent sprint is against "other".
+            await queries.create_sprint(orch.db, "sp-earlier", "test", "idea1")
+            await queries.create_sprint(orch.db, "sp-latest", "other", "idea2")
+            await queries.update_sprint(
+                orch.db, "sp-earlier", created_at="2026-01-01 00:00:00"
+            )
+            await queries.update_sprint(
+                orch.db, "sp-latest", created_at="2026-04-19 12:00:00"
+            )
+
+            resp = client.get(
+                "/dashboard/sprints",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert '<option value="other" selected>other</option>' in resp.text
+            assert '<option value="test">test</option>' in resp.text
+
+    async def test_new_sprint_form_no_default_when_no_sprints(self):
+        client, _, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            resp = client.get(
+                "/dashboard/sprints",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            assert " selected>" not in resp.text
+
 
 class TestSprintDetailPage:
     async def test_sprint_detail_page(self):
