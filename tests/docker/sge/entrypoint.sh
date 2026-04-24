@@ -26,6 +26,23 @@ ssh-keygen -A 2>/dev/null || true
 echo "Starting SGE installation..."
 /root/boot-sge.sh true 2>&1 || echo "WARNING: boot-sge.sh exited with $?"
 
+# Dump the inst_sge install logs to help diagnose failures in CI —
+# inst_sge prints "Install log can be found in: …" then redirects
+# everything else to that file, so without this the root cause of
+# a failed install is invisible.
+if [ ! -f /etc/profile.d/sge_settings.sh ]; then
+    echo "---- SGE install diagnostic ----"
+    echo "hostname -f: $(hostname -f 2>&1 || true)"
+    echo "hostname: $(hostname 2>&1 || true)"
+    echo "getent hosts: $(getent hosts $(hostname) 2>&1 || true)"
+    for log in /opt/sge/default/common/install_logs/*.log; do
+        [ -f "$log" ] || continue
+        echo "---- $log ----"
+        cat "$log" 2>&1 || true
+    done
+    echo "---- end diagnostic ----"
+fi
+
 # Source SGE settings if the install succeeded.
 if [ -f /etc/profile.d/sge_settings.sh ]; then
     . /etc/profile.d/sge_settings.sh

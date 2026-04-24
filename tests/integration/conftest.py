@@ -361,9 +361,9 @@ def sge_container(
             text=True,
         )
         if logs.stdout:
-            print(f"SGE container logs:\n{logs.stdout[-1000:]}")
+            print(f"SGE container logs:\n{logs.stdout}")
         if logs.stderr:
-            print(f"SGE container stderr:\n{logs.stderr[-500:]}")
+            print(f"SGE container stderr:\n{logs.stderr}")
         subprocess.run(
             ["docker", "stop", container_id],
             capture_output=True,
