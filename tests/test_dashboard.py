@@ -341,6 +341,40 @@ class TestSprintDetailPage:
             )
             assert resp.status_code == 404
 
+    async def test_sprint_detail_escapes_html_in_prompt(self):
+        """Angle brackets in the prompt must not render as HTML tags.
+
+        Regression: a prompt containing "<S>" used to be parsed as an unclosed
+        tag, breaking the rest of the page (e.g. striking through everything
+        after the prompt pane).
+        """
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            login_resp = client.post(
+                "/dashboard/login",
+                data={"password": "secret"},
+                follow_redirects=False,
+            )
+            cookie = login_resp.cookies.get(SESSION_COOKIE)
+            await queries.create_sprint(
+                orch.db,
+                "sp-html01",
+                "test",
+                "Path: results/<sae_id>/seed_<S>_run_0.json and "
+                "<strike>striking</strike>.",
+            )
+            resp = client.get(
+                "/dashboard/sprints/sp-html01",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            # Angle brackets should be escaped, not passed through as tags.
+            assert "&lt;sae_id&gt;" in resp.text
+            assert "&lt;S&gt;" in resp.text
+            assert "&lt;strike&gt;" in resp.text
+            assert "<strike>" not in resp.text
+            assert "<sae_id>" not in resp.text
+
 
 class TestLogout:
     def test_logout_clears_cookie(self):

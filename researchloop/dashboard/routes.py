@@ -35,11 +35,18 @@ logger = logging.getLogger(__name__)
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+
 # Add a markdown filter for rendering reports.
-templates.env.filters["markdown"] = lambda text: _md.markdown(
-    text,
-    extensions=["fenced_code", "tables", "codehilite"],
-)
+# Raw HTML is disabled — angle brackets in prompts (e.g. "<S>", "<sae_id>")
+# would otherwise be interpreted as tags and break the page layout.
+def _render_markdown(text: str) -> str:
+    md = _md.Markdown(extensions=["fenced_code", "tables", "codehilite"])
+    md.preprocessors.deregister("html_block")
+    md.inlinePatterns.deregister("html")
+    return md.convert(text)
+
+
+templates.env.filters["markdown"] = _render_markdown
 
 
 def add_dashboard_routes(
