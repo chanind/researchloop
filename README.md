@@ -7,6 +7,8 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
+<img width="720" height="456" alt="mmlu-combined" src="https://github.com/user-attachments/assets/cf48ed67-2a41-474d-81ab-2a86cd811af9" />
+
 ---
 
 ResearchLoop submits AI-powered research experiments to your SLURM or SGE cluster, then reports back the results. You describe a research idea in natural language, it handles the rest: submitting the job, running a multi-step pipeline with [Claude Code](https://docs.anthropic.com/en/docs/claude-code), red-teaming the results, generating a report, and notifying you when it's done.
