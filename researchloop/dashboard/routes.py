@@ -1089,6 +1089,7 @@ def add_dashboard_routes(
                     "status": updated["status"] if updated else None,
                     "idea": updated.get("idea") if updated else None,
                     "summary": updated.get("summary") if updated else None,
+                    "loop_id": updated.get("loop_id") if updated else None,
                     "completed_at": updated.get("completed_at") if updated else None,
                 }
             )

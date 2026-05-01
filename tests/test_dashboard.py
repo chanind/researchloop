@@ -302,6 +302,70 @@ class TestSprintsPage:
             assert resp.status_code == 200
             assert " selected>" not in resp.text
 
+    async def test_sprints_page_renders_inplace_refresh_wiring(self):
+        """Sprint list rows must carry the row id, data-cell markers, and
+        button hook used by the in-place refresh JS, so an auto-loop sprint
+        whose idea has just been generated updates without a full page reload.
+        """
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, _ = _login_and_csrf(client, "secret")
+            await queries.create_auto_loop(orch.db, "loop-list01", "test", 5)
+            sp = await queries.create_sprint(orch.db, "sp-list01", "test", idea=None)
+            await queries.update_sprint(
+                orch.db,
+                sp["id"],
+                status="running",
+                loop_id="loop-list01",
+            )
+
+            resp = client.get(
+                "/dashboard/sprints",
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            html = resp.text
+            assert 'id="row-sp-list01"' in html
+            assert 'data-cell="status"' in html
+            assert 'data-cell="idea"' in html
+            assert "refreshSprintRow('sp-list01', this)" in html
+            assert "function refreshSprintRow(" in html
+
+
+class TestSprintRefreshJSON:
+    async def test_refresh_returns_loop_id(self):
+        """The JSON refresh response includes loop_id so the in-place
+        refresh JS can decide whether to keep showing 'auto-generating
+        idea...' for non-loop sprints whose idea is genuinely empty.
+
+        The sprint has no job_id so the cluster-side polling block is
+        skipped and the response reflects the current DB row.
+        """
+        client, orch, _ = _make_app_with_password("secret")
+        with client:
+            cookie, csrf = _login_and_csrf(client, "secret")
+            await queries.create_auto_loop(orch.db, "loop-rj01", "test", 3)
+            await queries.create_sprint(orch.db, "sp-rj01", "test", idea=None)
+            await queries.update_sprint(
+                orch.db,
+                "sp-rj01",
+                status="running",
+                loop_id="loop-rj01",
+            )
+
+            resp = client.post(
+                "/dashboard/sprints/sp-rj01/refresh",
+                headers={
+                    "Accept": "application/json",
+                    "X-CSRF-Token": csrf,
+                },
+                cookies={SESSION_COOKIE: cookie},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["loop_id"] == "loop-rj01"
+            assert data["status"] == "running"
+
 
 class TestSprintDetailPage:
     async def test_sprint_detail_page(self):
