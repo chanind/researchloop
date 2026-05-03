@@ -170,10 +170,10 @@ class TestSubmitTweak:
         assert ssh_mock.run.call_count >= 2  # write script + chmod
         scheduler.submit.assert_called_once()
 
-    async def test_submit_tweak_rejects_non_completed_sprint(
+    async def test_submit_tweak_rejects_non_terminal_sprint(
         self, db_with_study, sample_config
     ):
-        """Should raise ValueError for non-completed sprints."""
+        """Should raise ValueError when the sprint is still pending/running."""
         mgr = SprintManager(
             db=db_with_study,
             config=sample_config,
@@ -186,7 +186,59 @@ class TestSubmitTweak:
             await mgr.submit_tweak(sprint.id, "some tweak")
             assert False, "Expected ValueError"
         except ValueError as e:
-            assert "not completed" in str(e)
+            assert "terminal" in str(e)
+
+    async def test_submit_tweak_on_failed_sprint(self, db_with_study, tmp_path):
+        """Failed sprints accept tweaks too — useful for "retry with X"."""
+        config = _tweak_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "888"
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "original idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="failed")
+
+        tweak_id = await mgr.submit_tweak(sprint.id, "retry with smaller batch size")
+
+        tweak = await queries.get_tweak(db_with_study, tweak_id)
+        assert tweak is not None
+        assert tweak["status"] == "submitted"
+
+    async def test_submit_tweak_on_cancelled_sprint(self, db_with_study, tmp_path):
+        """Cancelled sprints accept tweaks too."""
+        config = _tweak_config(tmp_path)
+        ssh_mock = AsyncMock()
+        ssh_mgr = AsyncMock()
+        ssh_mgr.get_connection.return_value = ssh_mock
+        scheduler = AsyncMock()
+        scheduler.submit.return_value = "777"
+        study_mgr = StudyManager(db_with_study, config)
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=config,
+            ssh_manager=ssh_mgr,
+            schedulers={"slurm": scheduler},
+            study_manager=study_mgr,
+        )
+        sprint = await mgr.create_sprint("test-study", "original idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="cancelled")
+
+        tweak_id = await mgr.submit_tweak(sprint.id, "pick up where you left off")
+
+        tweak = await queries.get_tweak(db_with_study, tweak_id)
+        assert tweak is not None
+        assert tweak["status"] == "submitted"
 
     async def test_submit_tweak_defaults_to_study_time_limit(
         self, db_with_study, tmp_path
@@ -620,6 +672,63 @@ class TestTweakDashboard:
             assert resp.status_code == 200
             assert "Quick Tweak" in resp.text
             assert 'name="instruction"' in resp.text
+
+    async def test_tweak_form_visible_on_failed_sprint(
+        self, db_with_study, sample_config
+    ):
+        """The tweak form must appear on failed/cancelled sprints too —
+        users iterate on partial state with instructions like "retry with
+        smaller batch size".
+        """
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from researchloop.core.config import DashboardConfig
+        from researchloop.core.orchestrator import Orchestrator, create_app
+
+        config = Config(
+            studies=sample_config.studies,
+            clusters=sample_config.clusters,
+            db_path=":memory:",
+            artifact_dir=tempfile.mkdtemp(),
+            dashboard=DashboardConfig(password_hash=None),
+        )
+        orch = Orchestrator(config)
+        app = create_app(orch)
+        client = TestClient(app)
+
+        with client:
+            assert orch.db is not None
+            from researchloop.dashboard.auth import hash_password
+
+            pw_hash = hash_password("testpass123")
+            await orch.db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("dashboard_password_hash", pw_hash),
+            )
+            resp = client.post(
+                "/dashboard/login",
+                data={"password": "testpass123"},
+                follow_redirects=False,
+            )
+            cookies = dict(resp.cookies)
+
+            for sid, status in [
+                ("sp-twk-fail", "failed"),
+                ("sp-twk-canc", "cancelled"),
+            ]:
+                await queries.create_sprint(orch.db, sid, "test-study", "idea")
+                await queries.update_sprint(orch.db, sid, status=status)
+                resp = client.get(
+                    f"/dashboard/sprints/{sid}",
+                    cookies=cookies,
+                )
+                assert resp.status_code == 200, status
+                assert "Quick Tweak" in resp.text, (
+                    f"Tweak form missing for {status} sprint"
+                )
+                assert 'name="instruction"' in resp.text
 
     async def test_tweak_form_hidden_on_running_sprint(
         self, db_with_study, sample_config

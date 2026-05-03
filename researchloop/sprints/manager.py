@@ -916,7 +916,12 @@ class SprintManager:
         job_options: dict[str, str] | None = None,
         time_limit: str | None = None,
     ) -> str:
-        """Submit a quick tweak job for a completed sprint.
+        """Submit a quick tweak job for a terminal sprint.
+
+        Allowed when the sprint is in a terminal state (completed, failed,
+        or cancelled) — failed/cancelled sprints often have partial state
+        worth iterating on with an instruction like "retry with smaller
+        batch size".
 
         If *time_limit* is None, the study's ``max_sprint_duration_hours``
         is used (same default as a regular sprint). Returns the tweak ID.
@@ -924,9 +929,15 @@ class SprintManager:
         sprint = await queries.get_sprint(self.db, sprint_id)
         if sprint is None:
             raise ValueError(f"Sprint not found: {sprint_id}")
-        if sprint["status"] != SprintStatus.COMPLETED.value:
+        terminal = {
+            SprintStatus.COMPLETED.value,
+            SprintStatus.FAILED.value,
+            SprintStatus.CANCELLED.value,
+        }
+        if sprint["status"] not in terminal:
             raise ValueError(
-                f"Sprint {sprint_id} is not completed (status={sprint['status']})"
+                f"Sprint {sprint_id} is not in a terminal state "
+                f"(status={sprint['status']}); wait for it to finish first"
             )
 
         # Reject if there's already a running tweak for this sprint.
