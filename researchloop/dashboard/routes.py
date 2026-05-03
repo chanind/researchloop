@@ -899,17 +899,12 @@ def add_dashboard_routes(
                         }
                         cur = sprint["status"]
                         if real_status in terminal and cur not in terminal:
-                            from datetime import (
-                                datetime,
-                                timezone,
-                            )
-
-                            now = datetime.now(timezone.utc).isoformat()
-                            await queries.update_sprint(
-                                orchestrator.db,
-                                sprint_id,
-                                status=real_status,
-                                completed_at=now,
+                            # Route through SprintManager so the parent
+                            # auto-loop is advanced too — otherwise a
+                            # webhook-less failure leaves the loop stuck
+                            # in "running".
+                            await orchestrator.sprint_manager.mark_sprint_terminal(
+                                sprint_id, real_status
                             )
 
                         # Resolve sprints_base the same way

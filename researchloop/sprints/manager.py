@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from researchloop.core.config import Config
     from researchloop.db.database import Database
     from researchloop.schedulers.base import BaseScheduler
+    from researchloop.sprints.auto_loop import AutoLoopController
 
 from researchloop.core.models import (
     Sprint,
@@ -89,6 +90,9 @@ class SprintManager:
         self.schedulers = schedulers
         self.study_manager = study_manager
         self.notification_router = notification_router
+        # Late-bound by Orchestrator after AutoLoopController is built;
+        # circular dep otherwise (AutoLoopController takes a SprintManager).
+        self.auto_loop: AutoLoopController | None = None
 
     # ------------------------------------------------------------------
     # Create
@@ -613,6 +617,56 @@ class SprintManager:
     # Completion handling
     # ------------------------------------------------------------------
 
+    async def mark_sprint_terminal(
+        self,
+        sprint_id: str,
+        status: str,
+        error: str | None = None,
+        **extra_fields: Any,
+    ) -> bool:
+        """Transition a sprint to a terminal state and notify its auto-loop.
+
+        This is the single chokepoint for terminal-state transitions —
+        webhook, JobMonitor SSH polling, and dashboard refresh all flow
+        through here so a loop sprint that fails outside the webhook path
+        still advances the parent loop.
+
+        Idempotent: returns ``False`` (and skips the loop callback) if the
+        sprint is already terminal or doesn't exist, so callers can branch
+        on whether their call was the one that did the transition.
+        """
+        sprint = await queries.get_sprint(self.db, sprint_id)
+        if sprint is None:
+            return False
+        terminal = {
+            SprintStatus.COMPLETED.value,
+            SprintStatus.FAILED.value,
+            SprintStatus.CANCELLED.value,
+        }
+        if sprint.get("status") in terminal:
+            return False
+
+        update_kw: dict[str, Any] = {
+            "status": status,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if error is not None:
+            update_kw["error"] = error
+        update_kw.update(extra_fields)
+        await queries.update_sprint(self.db, sprint_id, **update_kw)
+
+        if self.auto_loop is not None and sprint.get("loop_id"):
+            try:
+                await self.auto_loop.on_sprint_complete(sprint_id)
+            except Exception:
+                logger.exception(
+                    "Auto-loop advance failed for sprint %s; "
+                    "loop may be stuck — manual intervention needed",
+                    sprint_id,
+                )
+
+        return True
+
     async def handle_completion(
         self,
         sprint_id: str,
@@ -624,29 +678,34 @@ class SprintManager:
         """Handle a sprint completion event.
 
         Updates the database, sends notifications, and creates an event
-        record.
+        record. Idempotent — if the sprint is already terminal (e.g. the
+        JobMonitor caught it first), the rich notification work is
+        skipped to avoid double-firing.
         """
-        now = datetime.now(timezone.utc).isoformat()
-
-        update_kw: dict[str, str | None] = {
-            "status": status,
-            "completed_at": now,
-            "summary": summary,
-            "error": error,
-        }
+        extra: dict[str, Any] = {}
+        if summary is not None:
+            extra["summary"] = summary
 
         # Update the idea if it was auto-generated (sprint had idea=None).
         sprint_before = await queries.get_sprint(self.db, sprint_id)
         if sprint_before and not sprint_before.get("idea"):
             if idea:
-                update_kw["idea"] = idea[:500]
+                extra["idea"] = idea[:500]
             else:
                 # Fallback: try to read idea.txt from the cluster.
                 fetched = await self._fetch_idea(sprint_before)
                 if fetched:
-                    update_kw["idea"] = fetched[:500]
+                    extra["idea"] = fetched[:500]
 
-        await queries.update_sprint(self.db, sprint_id, **update_kw)
+        transitioned = await self.mark_sprint_terminal(
+            sprint_id, status, error=error, **extra
+        )
+        if not transitioned:
+            logger.info(
+                "Sprint %s already terminal; skipping completion processing",
+                sprint_id,
+            )
+            return
 
         sprint = await queries.get_sprint(self.db, sprint_id)
         study_name = sprint["study_name"] if sprint else "unknown"

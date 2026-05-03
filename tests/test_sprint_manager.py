@@ -319,6 +319,175 @@ class TestSprintManagerCompletion:
         mock_notifier.notify_sprint_completed.assert_called_once()
 
 
+class TestMarkSprintTerminal:
+    """The single chokepoint for terminal-state transitions.
+
+    Webhook, JobMonitor SSH polling, and dashboard refresh all flow through
+    here so the parent auto-loop advances on every terminal transition,
+    including the no-webhook case (OOM kills, walltime, node failure).
+    """
+
+    async def test_advances_loop_on_failed(self, db_with_study, sample_config):
+        """The original bug: a failed loop sprint detected outside the
+        webhook path used to leave the loop hanging in 'running'.
+        """
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        await queries.create_auto_loop(db_with_study, "loop-mst1", "test-study", 5)
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(
+            db_with_study,
+            sprint.id,
+            status="running",
+            loop_id="loop-mst1",
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-mst1",
+            current_sprint_id=sprint.id,
+            status="running",
+        )
+
+        from researchloop.sprints.auto_loop import AutoLoopController
+
+        mgr.auto_loop = AutoLoopController(
+            db=db_with_study, sprint_manager=mgr, config=sample_config
+        )
+
+        transitioned = await mgr.mark_sprint_terminal(sprint.id, "failed")
+        assert transitioned is True
+
+        loop = await queries.get_auto_loop(db_with_study, "loop-mst1")
+        assert loop is not None
+        assert loop["status"] == "failed"
+        sp = await queries.get_sprint(db_with_study, sprint.id)
+        assert sp["status"] == "failed"
+        assert sp["completed_at"] is not None
+
+    async def test_idempotent_when_already_terminal(self, db_with_study, sample_config):
+        """A second call must not advance the loop again — otherwise a
+        completed sprint plus a late JobMonitor sweep could submit a
+        duplicate next sprint.
+        """
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="failed")
+
+        mgr.auto_loop = AsyncMock()
+        result = await mgr.mark_sprint_terminal(sprint.id, "failed")
+        assert result is False
+        mgr.auto_loop.on_sprint_complete.assert_not_called()
+
+    async def test_no_callback_when_not_in_loop(self, db_with_study, sample_config):
+        """Standalone sprints (no loop_id) don't trigger the callback."""
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(db_with_study, sprint.id, status="running")
+
+        mgr.auto_loop = AsyncMock()
+        await mgr.mark_sprint_terminal(sprint.id, "completed")
+        mgr.auto_loop.on_sprint_complete.assert_not_called()
+
+    async def test_callback_failure_does_not_block_status_update(
+        self, db_with_study, sample_config
+    ):
+        """If the loop callback raises, the DB update still stands —
+        otherwise a transient on_sprint_complete bug would leave the
+        sprint in the wrong status forever.
+        """
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(
+            db_with_study, sprint.id, status="running", loop_id="loop-x"
+        )
+
+        mgr.auto_loop = AsyncMock()
+        mgr.auto_loop.on_sprint_complete.side_effect = RuntimeError("boom")
+        result = await mgr.mark_sprint_terminal(sprint.id, "failed")
+        assert result is True
+        sp = await queries.get_sprint(db_with_study, sprint.id)
+        assert sp["status"] == "failed"
+
+
+class TestJobMonitorAdvancesLoop:
+    """JobMonitor failure detection must advance the parent auto-loop.
+
+    Regression: the SSH-polling fallback used to bypass the auto-loop
+    callback, so loops whose sprint died without sending a webhook were
+    stranded in 'running' with their failed sprint as current_sprint_id.
+    """
+
+    async def test_failed_sprint_marks_loop_failed(self, db_with_study, sample_config):
+        from unittest.mock import patch
+
+        from researchloop.clusters.monitor import JobMonitor
+        from researchloop.sprints.auto_loop import AutoLoopController
+
+        mgr = SprintManager(
+            db=db_with_study,
+            config=sample_config,
+            ssh_manager=AsyncMock(),
+            schedulers={},
+        )
+        mgr.auto_loop = AutoLoopController(
+            db=db_with_study, sprint_manager=mgr, config=sample_config
+        )
+
+        await queries.create_auto_loop(db_with_study, "loop-jm1", "test-study", 5)
+        sprint = await mgr.create_sprint("test-study", "idea")
+        await queries.update_sprint(
+            db_with_study,
+            sprint.id,
+            status="running",
+            job_id="123",
+            loop_id="loop-jm1",
+        )
+        await queries.update_auto_loop(
+            db_with_study,
+            "loop-jm1",
+            current_sprint_id=sprint.id,
+            status="running",
+        )
+
+        monitor = JobMonitor(
+            ssh_manager=AsyncMock(),
+            db=db_with_study,
+            schedulers={},
+            sprint_manager=mgr,
+        )
+
+        with patch.object(
+            JobMonitor, "check_job", new=AsyncMock(return_value="failed")
+        ):
+            await monitor.poll_active_jobs()
+
+        loop = await queries.get_auto_loop(db_with_study, "loop-jm1")
+        assert loop is not None
+        assert loop["status"] == "failed", (
+            "Loop should advance to failed when JobMonitor catches a failure "
+            "the runner couldn't webhook about (OOM, walltime, node death)."
+        )
+
+
 def _make_config(
     tmp_path: Path,
     global_context: str = "",

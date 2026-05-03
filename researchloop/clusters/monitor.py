@@ -6,11 +6,14 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from researchloop.clusters.ssh import SSHManager
 from researchloop.db import queries
 from researchloop.schedulers.base import BaseScheduler
+
+if TYPE_CHECKING:
+    from researchloop.sprints.manager import SprintManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +31,17 @@ class JobMonitor:
         db: Any,
         schedulers: dict[str, BaseScheduler],
         config: Any = None,
+        sprint_manager: SprintManager | None = None,
     ) -> None:
         self.ssh_manager = ssh_manager
         self.db = db
         self.schedulers = schedulers
         self.config = config
+        # Optional: when set, terminal-state transitions go through
+        # sprint_manager.mark_sprint_terminal so the parent auto-loop
+        # advances. None falls back to a direct DB update (used by
+        # minimal test fixtures that don't construct a SprintManager).
+        self.sprint_manager = sprint_manager
         self._polling_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -143,12 +152,17 @@ class JobMonitor:
             # Persist the updated status if it changed.
             if status in ("completed", "failed"):
                 try:
-                    await queries.update_sprint(
-                        self.db,
-                        sprint_id,
-                        status=status,
-                        completed_at=datetime.now(timezone.utc).isoformat(),
-                    )
+                    if self.sprint_manager is not None:
+                        await self.sprint_manager.mark_sprint_terminal(
+                            sprint_id, status
+                        )
+                    else:
+                        await queries.update_sprint(
+                            self.db,
+                            sprint_id,
+                            status=status,
+                            completed_at=datetime.now(timezone.utc).isoformat(),
+                        )
                 except Exception:
                     logger.exception(
                         "Failed to update DB status for sprint %s", sprint_id

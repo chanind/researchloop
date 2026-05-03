@@ -112,6 +112,9 @@ class Orchestrator:
             sprint_manager=self.sprint_manager,
             config=self.config,
         )
+        # Late-bind the back-reference so SprintManager.mark_sprint_terminal
+        # can advance the parent loop on every terminal transition.
+        self.sprint_manager.auto_loop = self.auto_loop
 
         # 8. Job monitor
         self.job_monitor = JobMonitor(
@@ -119,6 +122,7 @@ class Orchestrator:
             db=self.db,
             schedulers=self.schedulers,
             config=self.config,
+            sprint_manager=self.sprint_manager,
         )
         await self.job_monitor.start_polling()
 
@@ -405,6 +409,10 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
                 {"ok": True, "sprint_id": sprint_id, "tweak_id": tweak_id}
             )
 
+        # handle_completion fires auto_loop.on_sprint_complete internally
+        # via mark_sprint_terminal — single chokepoint for terminal-state
+        # transitions, so the loop also advances when the JobMonitor or a
+        # dashboard refresh is the one that detects the terminal status.
         await orchestrator.sprint_manager.handle_completion(
             sprint_id=sprint_id,
             status=status,
@@ -412,10 +420,6 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
             error=error,
             idea=idea,
         )
-
-        # Trigger auto-loop advancement if applicable.
-        if orchestrator.auto_loop is not None:
-            await orchestrator.auto_loop.on_sprint_complete(sprint_id)
 
         logger.info(
             "Webhook: sprint %s completion processed (status=%s)",
