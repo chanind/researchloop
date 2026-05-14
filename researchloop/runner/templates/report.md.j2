@@ -48,11 +48,18 @@ After writing report.md, create `report.pdf` in the current directory using Pyth
 - Style: remove outer edges, add subtle row shading or gridlines for readability
 - If a table has many columns (>6), use font size 7 and/or landscape orientation for that page
 
-**Images:**
-- When generating plots earlier in the pipeline, save at **dpi=150 or higher** so text in plots is sharp in the PDF
-- When embedding in the PDF figure, use `ax.imshow(img, extent=[x_left, x_right, y_low, y_high], aspect='auto')` or insert via `fig.figimage()`. Scale to fit within margins while preserving aspect ratio
-- Do NOT downscale high-res images — matplotlib's PdfPages will embed them at their native resolution
+**Images — embed vector plots as vectors, not rasters:**
+- Plots from `results/` are typically saved as both `.png` (raster) and `.pdf` (vector). Always embed the `.pdf`. **Anything passed through `ax.imshow()` or `fig.figimage()` gets rasterized when PdfPages saves the page** — the source file's DPI is discarded, only the figure's savefig DPI matters, and the result is still raster. This is the dominant cause of blurry plots in the final report
+- Two-pass approach to keep plots vector:
+  1. **Matplotlib pass:** for each plot, draw a placeholder rectangle (or leave whitespace) at the intended position and record its bbox in page-fraction coordinates. Render the caption normally
+  2. **PyMuPDF overlay pass:** after `PdfPages` writes `report.pdf`, open it with `fitz` and for each placeholder call `page.show_pdf_page(rect, src_doc, 0)` where `src_doc = fitz.open(plot_pdf_path)` and `rect = fitz.Rect(x0, y0, x1, y1)` is the placeholder's bbox converted to points (page-fraction × 72 × page-size-in-inches; remember PDF y-axis runs top-down). Overwrite `report.pdf` with the merged result
+- Only use `ax.imshow(img, extent=..., aspect='auto')` for genuinely raster-only sources (photos, external screenshots) where no `.pdf` companion exists. Source those at dpi=150+
+- If `PyMuPDF` is unavailable, fall back to `pypdf`'s `merge_transformed_page` (same idea, different API) rather than rasterizing
 - Leave space above/below for captions
+
+**Verify the result is actually vector:**
+- For each embedded plot's xref, `fitz.open("report.pdf").xref_get_key(xref, "Subtype")` should return `/Form`, never `/Image`
+- A vector-only report is typically <150 KB; if `report.pdf` is 400 KB+ you almost certainly rasterized something — re-check the overlay pass
 
 **Pagination:**
 - Track y_cursor starting at y_top, decrementing after each element
